@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller==6.11.1 ttkbootstrap==1.10.3 matplotlib==3.9.4
+        pip install pyinstaller==6.11.1 ttkbootstrap==1.10.0 matplotlib==3.9.4
 
     - name: Build EXE
       run: |
