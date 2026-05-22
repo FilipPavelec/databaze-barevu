@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 """
-GUI pro vyhledávání v XML databázi barev - Moderní verze
+Databáze barev — grafické rozhraní (GUI)
+=========================================
+Aplikace pro vyhledávání a filtrování receptů z XML exportu míchacího stroje.
+
+Funkce:
+  - Vyhledávání receptu podle kódu nebo čárového kódu
+  - Filtrování receptů podle data vytvoření
+  - Pokročilé filtrování podle data, času, ventilu a šarže
+  - Koláčový graf složení receptu
+  - Historie míchání každého receptu
+
+Závislosti (volitelné, aplikace funguje i bez nich):
+  - ttkbootstrap  → moderní vzhled (pip install ttkbootstrap)
+  - matplotlib    → koláčový graf  (pip install matplotlib)
 """
 
 import tkinter as tk
@@ -9,6 +22,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
 
+# Pokus o načtení ttkbootstrap pro moderní vzhled.
+# Pokud není nainstalován, použije se standardní tkinter ttk.
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import *
@@ -17,9 +32,11 @@ except ImportError:
     from tkinter import ttk
     TTKBOOTSTRAP_AVAILABLE = False
 
+# Pokus o načtení matplotlib pro koláčový graf složení.
+# Pokud není nainstalován, záložka vyhledávání zobrazí jen textový detail.
 try:
     import matplotlib
-    matplotlib.use('TkAgg')
+    matplotlib.use('TkAgg')          # backend kompatibilní s tkinter
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
     MATPLOTLIB_AVAILABLE = True
@@ -28,47 +45,100 @@ except ImportError:
 
 
 class ColorDatabaseGUI:
+    """
+    Hlavní třída aplikace.
+
+    Spravuje celé GUI — načítání databáze, záložky, vyhledávání a filtrování.
+    Při inicializaci vytvoří okno a nastaví fonty a widgety.
+    """
+
     def __init__(self, root):
         self.root = root
-        self.root.title("🎨 Databáze barev - Vyhledávání")
+        self.root.title("🎨 Databáze barev — Model Obaly Hostinné")
         self.root.geometry("1200x800")
         self.root.minsize(1000, 650)
 
+        # Načtená databáze — None dokud uživatel nevybere soubor.
+        # Po načtení: {'tree': ET.ElementTree, 'root': ET.Element}
         self.db = None
-        self.xml_file = None
+        self.xml_file = None  # cesta k aktuálně načtenému souboru
 
-        # Fonty — používáme jen fonty dostupné v systému
+        # Lookup tabulky předpočítané při načtení databáze (viz _build_lookup_tables)
+        self._basecolor_by_pk = {}   # PK -> DBBaseColor element
+        self._recipe_valves   = {}   # recipe_pk -> [ventil, ...]
+        self._recipe_charges  = {}   # recipe_pk -> [šarže, ...]
+
         self._setup_fonts()
         self.setup_ui()
 
     def _setup_fonts(self):
-        """Nastavit fonty — jen fonty dostupné v systému."""
+        """
+        Vybrat fonty dostupné v aktuálním systému.
+
+        Tkinter na Linuxu vidí jen X11 fonty (ne TrueType přímo).
+        Proto procházíme seznam kandidátů a vezmeme první dostupný,
+        aby se předešlo fallbacku na font bez podpory diakritiky.
+        """
         import tkinter.font as tkfont
         available = set(tkfont.families())
 
-        # Proporcionální font pro UI
+        # Proporcionální font pro popisky, tlačítka a vstupní pole
         for candidate in ("Ubuntu", "nimbus sans l", "helvetica", "TkDefaultFont"):
             if candidate in available or candidate.startswith("Tk"):
-                self.font_ui      = (candidate, 12)
-                self.font_ui_bold = (candidate, 12, "bold")
-                self.font_ui_big  = (candidate, 14, "bold")
-                self.font_ui_sm   = (candidate, 10, "italic")
+                self.font_ui      = (candidate, 12)           # běžný text
+                self.font_ui_bold = (candidate, 12, "bold")   # tučné popisky
+                self.font_ui_big  = (candidate, 14, "bold")   # nadpisy
+                self.font_ui_sm   = (candidate, 10, "italic") # nápovědy
                 break
 
-        # Monospace font pro detail receptu
+        # Monospace font pro detail receptu (zarovnání sloupců)
         for candidate in ("courier 10 pitch", "nimbus mono l", "courier", "TkFixedFont"):
             if candidate in available or candidate.startswith("Tk"):
-                self.font_mono    = (candidate, 12)
-                self.font_mono_sm = (candidate, 11)
+                self.font_mono    = (candidate, 12)  # složení receptu
+                self.font_mono_sm = (candidate, 11)  # historie míchání
                 break
 
-        # Vstupní pole (velký font pro skener)
+        # Velký font pro vstupní pole skeneru čárových kódů
         self.font_entry = (self.font_ui[0], 18)
 
     def setup_ui(self):
-        """Vytvořit uživatelské rozhraní."""
-        top_frame = ttk.Frame(self.root, padding="15")
+        """
+        Sestavit hlavní okno aplikace.
+
+        Struktura:
+          - Horní lišta: logo Model Group + název souboru + tlačítko Načíst
+          - Branding lišta: Model Obaly Hostinné
+          - Notebook se třemi záložkami: Vyhledávání / Filtrování podle data / Pokročilé filtrování
+          - Stavový řádek dole
+        """
+        # Nastavit ikonu okna (model_logo.ico pokud existuje)
+        ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_logo.ico")
+        if os.path.exists(ico_path):
+            try:
+                self.root.iconbitmap(ico_path)
+            except Exception:
+                pass  # na Linuxu iconbitmap nemusí fungovat, nevadí
+
+        # Načíst PNG logo pro zobrazení v GUI
+        self._logo_image = None
+        png_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MODEL_Logo_M.png")
+        if os.path.exists(png_path):
+            try:
+                # Tkinter PhotoImage — zmenšit logo na výšku ~40px
+                raw = tk.PhotoImage(file=png_path)
+                # Poměr stran: 1514x681 → při výšce 40px šířka ~89px
+                # subsample(n) zmenší n-krát; 681/40 ≈ 17
+                factor = max(1, raw.height() // 40)
+                self._logo_image = raw.subsample(factor, factor)
+            except Exception:
+                self._logo_image = None
+        top_frame = ttk.Frame(self.root, padding="10 8")
         top_frame.pack(fill=tk.X)
+
+        # Logo Model Group vlevo
+        if self._logo_image:
+            logo_label = ttk.Label(top_frame, image=self._logo_image)
+            logo_label.pack(side=tk.LEFT, padx=(0, 15))
 
         file_info_frame = ttk.Frame(top_frame)
         file_info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -85,6 +155,15 @@ class ColorDatabaseGUI:
             ttk.Button(top_frame, text="📂 Načíst soubor", command=self.browse_file).pack(side=tk.RIGHT, padx=5)
 
         ttk.Separator(self.root, orient='horizontal').pack(fill=tk.X, padx=10, pady=5)
+
+        # Branding lišta — Model Obaly Hostinné / Model Group
+        brand_frame = ttk.Frame(self.root, padding="4 2")
+        brand_frame.pack(fill=tk.X, padx=10)
+        ttk.Label(brand_frame, text="Model Obaly a.s. — závod Hostinné",
+                  font=self.font_ui_bold).pack(side=tk.LEFT)
+        ttk.Label(brand_frame, text="| Model Group",
+                  font=self.font_ui, foreground="gray").pack(side=tk.LEFT, padx=8)
+        ttk.Separator(self.root, orient='horizontal').pack(fill=tk.X, padx=10, pady=2)
 
         if TTKBOOTSTRAP_AVAILABLE:
             self.notebook = ttk.Notebook(self.root, bootstyle="primary")
@@ -117,11 +196,19 @@ class ColorDatabaseGUI:
         self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_change)
 
     def _on_tab_change(self, event):
+        """Při přepnutí na záložku Vyhledávání automaticky přesunout focus do vstupního pole."""
         if self.notebook.index(self.notebook.select()) == 0:
             self.search_entry.focus()
 
     def setup_search_tab(self):
-        """Nastavit záložku vyhledávání."""
+        """
+        Záložka „Vyhledávání podle kódu".
+
+        Obsahuje:
+          - Vstupní pole pro ruční zadání nebo sken čárového kódu (Enter = vyhledat)
+          - Textová oblast s detailem receptu (název, PK, složení, šarže, historie míchání)
+          - Koláčový graf složení (pouze pokud je nainstalován matplotlib)
+        """
         search_frame = ttk.LabelFrame(self.search_tab, text="🔎 Vyhledávání receptu")
         search_frame.pack(fill=tk.X, padx=15, pady=10)
 
@@ -180,7 +267,13 @@ class ColorDatabaseGUI:
             self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def setup_date_tab(self):
-        """Nastavit záložku filtrování podle data."""
+        """
+        Záložka „Filtrování podle data".
+
+        Umožňuje zobrazit všechny recepty vytvořené v zadaném časovém rozsahu.
+        Výsledky jsou seřazeny od nejnovějšího. Dvojklik na řádek přepne na
+        záložku Vyhledávání a zobrazí plný detail receptu.
+        """
         input_frame = ttk.LabelFrame(self.date_tab, text="📅 Zadejte rozsah dat")
         input_frame.pack(fill=tk.X, padx=15, pady=10)
 
@@ -246,7 +339,18 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").pack(pady=5)
 
     def setup_advanced_tab(self):
-        """Nastavit záložku pokročilého filtrování."""
+        """
+        Záložka „Pokročilé filtrování".
+
+        Kombinuje více filtrů najednou:
+          - Rozsah data a času vytvoření receptu
+          - Číslo ventilu (zobrazí jen recepty, které daný ventil používají)
+        Výsledky obsahují sloupec Šarže — čísla šarží všech složek receptu.
+        Dvojklik zobrazí plný detail na záložce Vyhledávání.
+
+        Výkon: filtrování je rychlé díky lookup tabulkám předpočítaným
+        při načtení souboru (viz _build_lookup_tables).
+        """
         filter_frame = ttk.LabelFrame(self.advanced_tab, text="⚙️ Filtry")
         filter_frame.pack(fill=tk.X, padx=15, pady=10)
 
@@ -341,6 +445,7 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").pack(pady=5)
 
     def browse_file(self):
+        """Otevřít dialog pro výběr XML souboru a načíst databázi."""
         filename = filedialog.askopenfilename(
             title="Vyberte XML soubor",
             filetypes=[("XML soubory", "*.xml *.XML"), ("Všechny soubory", "*.*")]
@@ -349,6 +454,12 @@ class ColorDatabaseGUI:
             self.load_database(filename)
 
     def load_database(self, filepath):
+        """
+        Načíst XML soubor a připravit databázi.
+
+        Po úspěšném načtení zavolá _build_lookup_tables() pro předpočítání
+        slovníků ventilů a šarží — to zajistí rychlé pokročilé filtrování.
+        """
         try:
             tree = ET.parse(filepath)
             root = tree.getroot()
@@ -375,18 +486,31 @@ class ColorDatabaseGUI:
             self.status_bar.config(text="✗ Chyba při načítání")
 
     def _build_lookup_tables(self, root):
-        """Předpočítat lookup tabulky jednou při načtení — klíč pro rychlost filtrování."""
-        # PK -> DBBaseColor element
+        """
+        Předpočítat lookup tabulky jednou při načtení souboru.
+
+        Problém bez tabulek: pokročilé filtrování pro každý recept iteruje
+        přes všechny DBLine (1993) a DBBaseColor (22) → O(n²) → ~17 sekund zaseknutí.
+
+        Řešení: projdeme XML jednou a sestavíme slovníky:
+          _basecolor_by_pk  — PK → DBBaseColor element          (O(1) lookup)
+          _recipe_valves    — recipe_pk → [čísla ventilů]
+          _recipe_charges   — recipe_pk → [čísla šarží]
+
+        Filtrování pak trvá ~20ms místo 17 sekund.
+        """
+        from collections import defaultdict
+
+        # Krok 1: slovník PK → DBBaseColor element pro O(1) přístup
         self._basecolor_by_pk = {}
         for bc in root.iter('DBBaseColor'):
             pk = bc.get('PK')
             if pk:
                 self._basecolor_by_pk[pk] = bc
 
-        # recipe_pk -> list of (valve, charge) z DBLine
-        from collections import defaultdict
-        recipe_valves  = defaultdict(list)   # recipe_pk -> [valve_str, ...]
-        recipe_charges = defaultdict(list)   # recipe_pk -> [charge_str, ...]
+        # Krok 2: pro každý recept sestavit seznam ventilů a šarží z DBLine
+        recipe_valves  = defaultdict(list)   # recipe_pk -> [číslo ventilu, ...]
+        recipe_charges = defaultdict(list)   # recipe_pk -> [šarže, ...]
 
         for line in root.iter('DBLine'):
             recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
@@ -420,6 +544,12 @@ class ColorDatabaseGUI:
         self._recipe_charges = dict(recipe_charges)
 
     def search_barcode(self):
+        """
+        Zpracovat vstup z pole skeneru a spustit vyhledávání.
+
+        Po vyhledání vymaže vstupní pole a vrátí focus — připraveno
+        pro okamžité naskenování dalšího kódu.
+        """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
@@ -434,7 +564,12 @@ class ColorDatabaseGUI:
         self.search_entry.focus()
 
     def process_barcode(self, barcode):
-        barcode = barcode.strip()
+        """
+        Normalizovat naskenovaný čárový kód na čistý kód receptu.
+
+        Skenery někdy přidávají přípony — např. "315.001" nebo "315#ABC".
+        Bereme jen část před první tečkou nebo mřížkou.
+        """
         if '.' in barcode:
             code = barcode.split('.')[0].strip()
             if code:
@@ -447,7 +582,13 @@ class ColorDatabaseGUI:
         return barcode
 
     def search_by_code(self, code):
-        """Vyhledat recept podle kódu — vrátí jen nejnovější verzi každého názvu."""
+        """
+        Vyhledat recept podle kódu (PK nebo název).
+
+        Pokud existuje více receptů se stejným názvem (přepracované verze),
+        vrátí pouze nejnovější podle data vytvoření — každý název = jeden výsledek.
+        Přesná shoda PK má přednost a vrátí se okamžitě.
+        """
         candidates = []
         for elem in self.db['root'].iter('DBRecipe'):
             pk = elem.get('PK', '')
@@ -486,7 +627,8 @@ class ColorDatabaseGUI:
         return results
 
     def display_results(self, results, search_code):
-        self.result_text.delete(1.0, tk.END)
+        """Zobrazit seznam nalezených receptů v textové oblasti."""
+        self.result_text.delete(1.0, tk.END)  # vymazat předchozí výsledky
         if not results:
             self.result_text.insert(tk.END, f"✗ Žádné výsledky pro kód: {search_code}\n\n", "error")
             self.result_text.tag_config("error", foreground="red")
@@ -502,7 +644,14 @@ class ColorDatabaseGUI:
             self.display_recipe(recipe)
 
     def display_recipe(self, recipe_elem):
-        pk = recipe_elem.get('PK', 'N/A')
+        """
+        Vypsat plný detail jednoho receptu do textové oblasti.
+
+        Zobrazí: název, PK, referenční množství, datum vytvoření,
+        složení (barva, ventil, množství v g, šarže) a historii míchání.
+        Zároveň předá data do draw_pie_chart() pro vykreslení grafu.
+        """
+        pk = recipe_elem.get('PK', 'N/A')  # primární klíč receptu v databázi
 
         name_elem = recipe_elem.find('.//Name[@CLASS="String"]')
         name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
@@ -590,7 +739,13 @@ class ColorDatabaseGUI:
         self.result_text.tag_config("history_item", font=self.font_mono_sm, foreground="#555")
 
     def display_recipe_history(self, recipe_pk, recipe_name):
-        history_items = []
+        """
+        Zobrazit historii míchání receptu z tabulky DBStatRecipe.
+
+        Seřadí záznamy od nejnovějšího a zobrazí max. 10 položek
+        s relativním časem (Dnes / Včera / Před X dny...).
+        """
+        history_items = []  # seznam datetime objektů — kdy byl recept namíchán
         for stat_recipe in self.db['root'].iter('DBStatRecipe'):
             recipe_ref = stat_recipe.find('.//Recipe[@CLASS="DBRef"]')
             if recipe_ref is not None and recipe_ref.get('PK') == recipe_pk:
@@ -651,7 +806,13 @@ class ColorDatabaseGUI:
             self.result_text.insert(tk.END, "  Tento recept ještě nebyl míchán (pouze vytvořen)\n", "history_item")
 
     def get_color_for_name(self, name):
-        name_lower = name.lower()
+        """
+        Přiřadit barvu pro koláčový graf podle názvu složky.
+
+        Jednoduché mapování klíčových slov (anglicky i česky) na hex barvy.
+        Pokud název neodpovídá žádnému klíčovému slovu, vrátí šedou.
+        """
+        name_lower = name.lower()  # převést na malá písmena pro porovnání
         color_map = {
             'yellow': '#FFD700', 'žlut': '#FFD700',
             'red': '#DC143C', 'červen': '#DC143C', 'rot': '#DC143C',
@@ -671,7 +832,13 @@ class ColorDatabaseGUI:
         return '#A9A9A9'
 
     def draw_pie_chart(self, labels, values, colors, title):
-        self.figure.clear()
+        """
+        Vykreslit koláčový graf složení receptu.
+
+        Popisky obsahují název složky a procento. Uvnitř výseče je
+        zobrazeno skutečné množství v gramech (přepočítáno z procent).
+        """
+        self.figure.clear()  # vymazat předchozí graf
         ax = self.figure.add_subplot(111)
         total = sum(values)
 
@@ -703,6 +870,12 @@ class ColorDatabaseGUI:
         self.canvas.draw()
 
     def filter_by_date(self):
+        """
+        Filtrovat recepty podle rozsahu data vytvoření (záložka „Filtrování podle data").
+
+        Datum se čte z elementu DazeitC (Unix timestamp v milisekundách).
+        Výsledky jsou seřazeny od nejnovějšího.
+        """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
@@ -748,11 +921,13 @@ class ColorDatabaseGUI:
         self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů v daném období")
 
     def clear_date_filter(self):
+        """Vymazat výsledky v záložce filtrování podle data."""
         for item in self.date_tree.get_children():
             self.date_tree.delete(item)
         self.status_bar.config(text="Připraveno")
 
     def show_recipe_detail(self, event):
+        """Dvojklik v tabulce filtrování podle data — přepnout na detail receptu."""
         selection = self.date_tree.selection()
         if not selection:
             return
@@ -766,7 +941,13 @@ class ColorDatabaseGUI:
                 break
 
     def advanced_filter(self):
-        """Pokročilé filtrování podle data, času a ventilu."""
+        """
+        Pokročilé filtrování (záložka „Pokročilé filtrování").
+
+        Kombinuje filtry: rozsah data+času a číslo ventilu.
+        Výsledky obsahují sloupec Šarže ze všech složek receptu.
+        Rychlost zajišťují předpočítané lookup tabulky (_build_lookup_tables).
+        """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
@@ -850,23 +1031,25 @@ class ColorDatabaseGUI:
         self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů podle pokročilých filtrů")
 
     def get_recipe_valves(self, recipe_pk):
-        """Získat seznam ventilů použitých v receptu — z předpočítané tabulky."""
+        """Vrátit seřazený seznam čísel ventilů pro daný recept (z lookup tabulky)."""
         return sorted(self._recipe_valves.get(recipe_pk, []))
 
     def get_recipe_charges(self, recipe_pk):
-        """Získat seznam šarží použitých v receptu — z předpočítané tabulky."""
+        """Vrátit seznam šarží všech složek daného receptu (z lookup tabulky)."""
         return self._recipe_charges.get(recipe_pk, [])
 
     def find_basecolor(self, pk):
-        """Najít základní barvu podle PK — z předpočítané tabulky."""
+        """Vrátit DBBaseColor element podle PK (z lookup tabulky, O(1))."""
         return self._basecolor_by_pk.get(pk)
 
     def clear_advanced_filter(self):
+        """Vymazat výsledky v záložce pokročilého filtrování."""
         for item in self.adv_tree.get_children():
             self.adv_tree.delete(item)
         self.status_bar.config(text="Připraveno")
 
     def show_advanced_recipe_detail(self, event):
+        """Dvojklik v tabulce pokročilého filtrování — přepnout na detail receptu."""
         selection = self.adv_tree.selection()
         if not selection:
             return
@@ -880,17 +1063,71 @@ class ColorDatabaseGUI:
                 break
 
     def clear_search(self):
+        """Vymazat vstupní pole vyhledávání a vrátit focus."""
         self.search_entry.delete(0, tk.END)
         self.search_entry.focus()
 
+    def _show_about(self):
+        """Zobrazit okno O aplikaci s brandingem Model Group."""
+        about = tk.Toplevel(self.root)
+        about.title("O aplikaci")
+        about.geometry("420x300")
+        about.resizable(False, False)
+        about.grab_set()  # modální okno
+
+        frame = ttk.Frame(about, padding=25)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Logo v dialogu
+        if self._logo_image:
+            ttk.Label(frame, image=self._logo_image).pack(pady=(0, 10))
+
+        ttk.Label(frame, text="🎨 Databáze barev",
+                  font=(self.font_ui[0], 16, "bold")).pack(pady=(0, 4))
+        ttk.Label(frame, text="Nástroj pro správu tiskových inkoustů",
+                  font=self.font_ui).pack()
+
+        ttk.Separator(frame, orient="horizontal").pack(fill=tk.X, pady=15)
+
+        ttk.Label(frame, text="Model Obaly a.s. — závod Hostinné",
+                  font=self.font_ui_bold).pack()
+        ttk.Label(frame, text="Model Group  |  modelgroup.com",
+                  font=self.font_ui, foreground="gray").pack(pady=2)
+
+        ttk.Separator(frame, orient="horizontal").pack(fill=tk.X, pady=15)
+
+        ttk.Label(frame, text="Verze 1.0  |  2024",
+                  font=self.font_ui_sm, foreground="gray").pack()
+        ttk.Label(frame, text="Vytvořil: Filip Pavelec",
+                  font=self.font_ui_sm, foreground="gray").pack(pady=(2, 0))
+
+        if TTKBOOTSTRAP_AVAILABLE:
+            ttk.Button(frame, text="Zavřít", command=about.destroy,
+                       bootstyle="secondary", width=12).pack(pady=(15, 0))
+        else:
+            ttk.Button(frame, text="Zavřít", command=about.destroy,
+                       width=12).pack(pady=(15, 0))
+
 
 def main():
+    """Vstupní bod aplikace — vytvoří okno a spustí hlavní smyčku."""
     if TTKBOOTSTRAP_AVAILABLE:
         root = ttk.Window(themename="cosmo")
     else:
         root = tk.Tk()
 
     app = ColorDatabaseGUI(root)
+
+    # Přidat menu lištu s brandingem
+    menubar = tk.Menu(root)
+    help_menu = tk.Menu(menubar, tearoff=0)
+    help_menu.add_command(label="O aplikaci", command=app._show_about)
+    help_menu.add_separator()
+    help_menu.add_command(label="Model Group — modelgroup.com",
+                          command=lambda: __import__('webbrowser').open('https://www.modelgroup.com'))
+    menubar.add_cascade(label="Nápověda", menu=help_menu)
+    root.config(menu=menubar)
+
     root.mainloop()
 
 
