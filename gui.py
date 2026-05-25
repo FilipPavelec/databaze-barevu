@@ -1360,7 +1360,40 @@ class ColorDatabaseGUI:
         return rows
 
     def _export_pdf(self, content, filepath):
-        """Exportovat obsah do PDF pomocí reportlab."""
+        """Exportovat obsah do PDF pomocí reportlab s podporou české diakritiky."""
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+
+        # Zaregistrovat DejaVuSans — podporuje českou diakritiku.
+        # Font je přibalen ve složce fonts/ vedle gui.py (funguje i v EXE).
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        font_regular = os.path.join(base_dir, 'fonts', 'DejaVuSans.ttf')
+        font_bold    = os.path.join(base_dir, 'fonts', 'DejaVuSans-Bold.ttf')
+
+        # Fallback: pokud fonts/ chybí, zkusit systémové umístění
+        if not os.path.exists(font_regular):
+            for candidate in [
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+                'C:/Windows/Fonts/arial.ttf',
+            ]:
+                if os.path.exists(candidate):
+                    font_regular = candidate
+                    font_bold = candidate.replace('DejaVuSans.ttf', 'DejaVuSans-Bold.ttf')
+                    if not os.path.exists(font_bold):
+                        font_bold = candidate
+                    break
+
+        try:
+            pdfmetrics.registerFont(TTFont('DejaVu',     font_regular))
+            pdfmetrics.registerFont(TTFont('DejaVu-Bold', font_bold))
+            fn       = 'DejaVu'
+            fn_bold  = 'DejaVu-Bold'
+        except Exception:
+            # Pokud font nelze načíst, použij Helvetica (bez diakritiky)
+            fn      = 'Helvetica'
+            fn_bold = 'Helvetica-Bold'
+
         doc = SimpleDocTemplate(
             filepath,
             pagesize=A4,
@@ -1368,28 +1401,27 @@ class ColorDatabaseGUI:
             topMargin=20*mm, bottomMargin=20*mm
         )
 
-        styles = getSampleStyleSheet()
         style_title = ParagraphStyle('title',
-            fontSize=14, fontName='Helvetica-Bold',
+            fontSize=14, fontName=fn_bold,
             textColor=rl_colors.HexColor('#1a5276'), spaceAfter=4)
         style_subtitle = ParagraphStyle('subtitle',
-            fontSize=9, fontName='Helvetica',
+            fontSize=9, fontName=fn,
             textColor=rl_colors.HexColor('#555555'), spaceAfter=10)
         style_recipe = ParagraphStyle('recipe',
-            fontSize=12, fontName='Helvetica-Bold',
+            fontSize=12, fontName=fn_bold,
             textColor=rl_colors.HexColor('#1a5276'), spaceBefore=10, spaceAfter=3)
         style_date = ParagraphStyle('date',
-            fontSize=9, fontName='Helvetica',
+            fontSize=9, fontName=fn,
             textColor=rl_colors.HexColor('#555555'), spaceAfter=4)
         style_ingredient = ParagraphStyle('ingredient',
-            fontSize=10, fontName='Helvetica-Bold',
+            fontSize=10, fontName=fn_bold,
             leftIndent=10, spaceBefore=4, spaceAfter=1)
         style_detail = ParagraphStyle('detail',
-            fontSize=9, fontName='Helvetica',
+            fontSize=9, fontName=fn,
             textColor=rl_colors.HexColor('#333333'),
             leftIndent=20, spaceAfter=2)
         style_normal = ParagraphStyle('normal',
-            fontSize=9, fontName='Helvetica',
+            fontSize=9, fontName=fn,
             textColor=rl_colors.HexColor('#333333'), spaceAfter=2)
 
         story = []
@@ -1400,7 +1432,12 @@ class ColorDatabaseGUI:
         story.append(HRFlowable(width="100%", thickness=1, color=rl_colors.HexColor('#1a5276')))
         story.append(Spacer(1, 6*mm))
 
-        # Parsovat obsah
+        # Parsovat obsah — odfiltrovat emoji které reportlab neumí
+        def clean(text):
+            import unicodedata
+            return ''.join(c for c in text
+                           if unicodedata.category(c) not in ('So', 'Cs') or ord(c) < 256)
+
         for line in content.splitlines():
             stripped = line.strip()
             if not stripped:
@@ -1410,15 +1447,15 @@ class ColorDatabaseGUI:
                 story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#cccccc')))
                 continue
             if stripped.startswith('RECEPT:') or (stripped and stripped[0].isdigit() and '.  ' in stripped):
-                story.append(Paragraph(stripped, style_recipe))
-            elif '📅' in stripped or 'Datum' in stripped:
-                story.append(Paragraph(stripped.replace('📅', ''), style_date))
-            elif stripped.startswith('•'):
-                story.append(Paragraph(stripped.lstrip('• '), style_ingredient))
-            elif 'Ventil:' in stripped:
-                story.append(Paragraph(stripped, style_detail))
+                story.append(Paragraph(clean(stripped), style_recipe))
+            elif 'Datum' in stripped or stripped.startswith('PK:'):
+                story.append(Paragraph(clean(stripped), style_date))
+            elif stripped[0].isdigit() and '. ' in stripped[:4]:
+                story.append(Paragraph(clean(stripped), style_ingredient))
+            elif stripped.startswith('-'):
+                story.append(Paragraph(clean(stripped), style_detail))
             else:
-                story.append(Paragraph(stripped, style_normal))
+                story.append(Paragraph(clean(stripped), style_normal))
 
         doc.build(story)
 

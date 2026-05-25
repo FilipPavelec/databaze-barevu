@@ -34,6 +34,8 @@ jobs:
           --icon="model_logo.ico" `
           --add-data="model_logo.ico;." `
           --add-data="MODEL_Logo_M.png;." `
+          --add-data="fonts/DejaVuSans.ttf;fonts" `
+          --add-data="fonts/DejaVuSans-Bold.ttf;fonts" `
           --hidden-import=ttkbootstrap `
           --hidden-import=matplotlib `
           --hidden-import=matplotlib.backends.backend_tkagg `
