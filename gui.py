@@ -21,6 +21,18 @@ from tkinter import filedialog, messagebox, scrolledtext
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
+import csv
+
+# Pokus o načtení reportlab pro export do PDF.
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib import colors as rl_colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 # Pokus o načtení ttkbootstrap pro moderní vzhled.
 # Pokud není nainstalován, použije se standardní tkinter ttk.
@@ -236,9 +248,12 @@ class ColorDatabaseGUI:
                        bootstyle="success", width=15).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="🗑️ Vymazat", command=self.clear_search,
                        bootstyle="secondary", width=15).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="💾 Export", command=lambda: self.export_results('search'),
+                       bootstyle="info", width=15).pack(side=tk.LEFT, padx=5)
         else:
             ttk.Button(button_frame, text="🔍 Vyhledat", command=self.search_barcode).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="🗑️ Vymazat", command=self.clear_search).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="💾 Export", command=lambda: self.export_results('search')).pack(side=tk.LEFT, padx=5)
 
         result_container = ttk.Frame(self.search_tab)
         result_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
@@ -391,17 +406,29 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").grid(
             row=5, column=1, sticky=tk.W, padx=5, pady=0)
 
+        ttk.Label(inner_filter, text="🎨 Barva (název nebo číslo):", font=self.font_ui_bold).grid(
+            row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        self.adv_color = ttk.Entry(inner_filter, font=self.font_ui, width=20)
+        self.adv_color.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
+
+        ttk.Label(inner_filter, text="(Např. '48', 'Transparent', 'Blue 17')",
+                  font=self.font_ui_sm, foreground="gray").grid(
+            row=7, column=1, sticky=tk.W, padx=5, pady=0)
+
         button_frame = ttk.Frame(inner_filter)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=15, sticky=tk.W, padx=5)
+        button_frame.grid(row=8, column=0, columnspan=2, pady=15, sticky=tk.W, padx=5)
 
         if TTKBOOTSTRAP_AVAILABLE:
             ttk.Button(button_frame, text="🔍 Filtrovat", command=self.advanced_filter,
                        bootstyle="success", width=15).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="🗑️ Vymazat", command=self.clear_advanced_filter,
                        bootstyle="secondary", width=15).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="💾 Export", command=lambda: self.export_results('advanced'),
+                       bootstyle="info", width=15).pack(side=tk.LEFT, padx=5)
         else:
             ttk.Button(button_frame, text="🔍 Filtrovat", command=self.advanced_filter).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="🗑️ Vymazat", command=self.clear_advanced_filter).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="💾 Export", command=lambda: self.export_results('advanced')).pack(side=tk.LEFT, padx=5)
 
         result_frame = ttk.LabelFrame(self.advanced_tab, text="📊 Výsledky")
         result_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
@@ -409,7 +436,6 @@ class ColorDatabaseGUI:
         inner_result = ttk.Frame(result_frame, padding=10)
         inner_result.pack(fill=tk.BOTH, expand=True)
 
-        # Sloupce včetně Šarže
         columns = ("PK", "Název", "Množství", "Datum", "Čas", "Ventily", "Šarže")
 
         if TTKBOOTSTRAP_AVAILABLE:
@@ -418,21 +444,21 @@ class ColorDatabaseGUI:
         else:
             self.adv_tree = ttk.Treeview(inner_result, columns=columns, show="headings", height=12)
 
-        self.adv_tree.heading("PK", text="PK")
-        self.adv_tree.heading("Název", text="Název")
-        self.adv_tree.heading("Množství", text="Množství (g)")
-        self.adv_tree.heading("Datum", text="Datum")
-        self.adv_tree.heading("Čas", text="Čas")
+        self.adv_tree.heading("PK",      text="PK")
+        self.adv_tree.heading("Název",   text="Název")
+        self.adv_tree.heading("Množství",text="Množství (g)")
+        self.adv_tree.heading("Datum",   text="Datum")
+        self.adv_tree.heading("Čas",     text="Čas")
         self.adv_tree.heading("Ventily", text="Použité ventily")
-        self.adv_tree.heading("Šarže", text="Šarže")
+        self.adv_tree.heading("Šarže",   text="Šarže")
 
-        self.adv_tree.column("PK", width=60, anchor=tk.CENTER)
-        self.adv_tree.column("Název", width=150)
-        self.adv_tree.column("Množství", width=90, anchor=tk.E)
-        self.adv_tree.column("Datum", width=90, anchor=tk.CENTER)
-        self.adv_tree.column("Čas", width=70, anchor=tk.CENTER)
-        self.adv_tree.column("Ventily", width=120)
-        self.adv_tree.column("Šarže", width=180)
+        self.adv_tree.column("PK",       width=60,  anchor=tk.CENTER)
+        self.adv_tree.column("Název",    width=160)
+        self.adv_tree.column("Množství", width=90,  anchor=tk.E)
+        self.adv_tree.column("Datum",    width=90,  anchor=tk.CENTER)
+        self.adv_tree.column("Čas",      width=70,  anchor=tk.CENTER)
+        self.adv_tree.column("Ventily",  width=110)
+        self.adv_tree.column("Šarže",    width=180)
 
         scrollbar = ttk.Scrollbar(inner_result, orient=tk.VERTICAL, command=self.adv_tree.yview)
         self.adv_tree.configure(yscroll=scrollbar.set)
@@ -441,7 +467,10 @@ class ColorDatabaseGUI:
 
         self.adv_tree.bind('<Double-1>', self.show_advanced_recipe_detail)
 
-        ttk.Label(result_frame, text="💡 Tip: Dvojklikem na recept zobrazíte detail",
+        # Skrytý ScrolledText pro export — naplní se při filtrování
+        self.adv_result_text = scrolledtext.ScrolledText(inner_result, width=0, height=0)
+
+        ttk.Label(result_frame, text="💡 Tip: Dvojklikem na recept zobrazíte přehledný detail",
                   font=self.font_ui_sm, foreground="gray").pack(pady=5)
 
     def browse_file(self):
@@ -508,9 +537,11 @@ class ColorDatabaseGUI:
             if pk:
                 self._basecolor_by_pk[pk] = bc
 
-        # Krok 2: pro každý recept sestavit seznam ventilů a šarží z DBLine
+        # Krok 2: pro každý recept sestavit seznam ventilů, šarží, názvů barev a DBLine z DBLine
         recipe_valves  = defaultdict(list)   # recipe_pk -> [číslo ventilu, ...]
         recipe_charges = defaultdict(list)   # recipe_pk -> [šarže, ...]
+        recipe_colors  = defaultdict(list)   # recipe_pk -> [název barvy, ...]
+        lines_by_recipe = defaultdict(list)  # recipe_pk -> [DBLine element, ...]
 
         for line in root.iter('DBLine'):
             recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
@@ -519,6 +550,8 @@ class ColorDatabaseGUI:
             r_pk = recipe_ref.get('PK')
             if not r_pk:
                 continue
+
+            lines_by_recipe[r_pk].append(line)
 
             basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
             if basecolor_ref is None:
@@ -540,8 +573,16 @@ class ColorDatabaseGUI:
                 if charge and charge not in recipe_charges[r_pk]:
                     recipe_charges[r_pk].append(charge)
 
-        self._recipe_valves  = dict(recipe_valves)
-        self._recipe_charges = dict(recipe_charges)
+            name_elem = bc.find('.//Name[@CLASS="String"]')
+            if name_elem is not None:
+                color_name = name_elem.get('VAL', '')
+                if color_name and color_name not in recipe_colors[r_pk]:
+                    recipe_colors[r_pk].append(color_name)
+
+        self._recipe_valves    = dict(recipe_valves)
+        self._recipe_charges   = dict(recipe_charges)
+        self._recipe_colors    = dict(recipe_colors)
+        self._lines_by_recipe  = dict(lines_by_recipe)
 
     def search_barcode(self):
         """
@@ -658,168 +699,151 @@ class ColorDatabaseGUI:
 
     def display_recipe(self, recipe_elem, stat_elem=None):
         """
-        Vypsat plný detail jednoho receptu do textové oblasti.
-
-        Pokud je předán stat_elem (DBStatRecipe), zobrazí skutečná data
-        z konkrétního míchání (DBStatLine) — aktuální šarže, skutečná množství,
-        datum míchání. Jinak zobrazí statický recept z DBLine.
+        Vypsat detail receptu ve formátu:
+          RECEPT: název  [míchání #pk]
+          Datum míchání: ...
+          ────────────────────────────
+          1. Název barvy
+             -čas nadávkování: HH:MM:SS
+             -ventil:          X
+             -šarže:           XXXXXX
+             -skutečná hmotnost: XXXX g
+          2. ...
         """
         pk = recipe_elem.get('PK', 'N/A')
-
         name_elem = recipe_elem.find('.//Name[@CLASS="String"]')
         name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
-
         amount_elem = recipe_elem.find('.//BezugsMenge[@CLASS="Double"]')
         amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
+        recipe_pk = recipe_elem.get('PK')
 
-        # Datum — z míchání (DBStatRecipe) nebo z vytvoření receptu
+        # Záhlaví
         if stat_elem is not None:
+            stat_pk = stat_elem.get('PK', 'N/A')
             mix_date_elem = stat_elem.find('.//MixDate[@CLASS="DBDate"]')
             date_time = 'N/A'
             if mix_date_elem is not None:
-                timestamp = mix_date_elem.get('TIME')
-                if timestamp:
+                ts = mix_date_elem.get('TIME')
+                if ts:
                     try:
-                        dt = datetime.fromtimestamp(int(timestamp) / 1000.0)
-                        date_time = dt.strftime('%d.%m.%Y %H:%M:%S')
+                        date_time = datetime.fromtimestamp(int(ts) / 1000.0).strftime('%d.%m.%Y %H:%M:%S')
                     except:
-                        date_time = timestamp
-            stat_pk = stat_elem.get('PK', 'N/A')
+                        pass
             self.result_text.insert(tk.END, f"RECEPT: {name}  [míchání #{stat_pk}]\n", "header")
         else:
             date_elem = recipe_elem.find('.//DazeitC[@CLASS="DBDate"]')
             date_time = 'N/A'
             if date_elem is not None:
-                timestamp = date_elem.get('TIME')
-                if timestamp:
+                ts = date_elem.get('TIME')
+                if ts:
                     try:
-                        dt = datetime.fromtimestamp(int(timestamp) / 1000.0)
-                        date_time = dt.strftime('%d.%m.%Y %H:%M:%S')
+                        date_time = datetime.fromtimestamp(int(ts) / 1000.0).strftime('%d.%m.%Y %H:%M:%S')
                     except:
-                        date_time = timestamp
+                        pass
             self.result_text.insert(tk.END, f"RECEPT: {name}\n", "header")
 
-        self.result_text.insert(tk.END, f"{'─' * 80}\n")
-        self.result_text.insert(tk.END, f"PK:              {pk}\n")
-        self.result_text.insert(tk.END, f"Ref. množství:   {amount} g\n")
-        self.result_text.insert(tk.END, f"Datum míchání:   {date_time}\n\n")
+        self.result_text.insert(tk.END, f"{'─' * 60}\n")
+        self.result_text.insert(tk.END, f"PK: {pk}   |   Ref. množství: {amount} g   |   Datum: {date_time}\n")
+        self.result_text.insert(tk.END, f"{'─' * 60}\n\n")
 
-        recipe_pk = recipe_elem.get('PK')
+        labels_data = []
+        values_data = []
+        colors_data = []
+        total = 0
 
         if stat_elem is not None:
-            # Zobrazit skutečné složení z DBStatLine
+            # Složení z DBStatLine — skutečné míchání
             stat_pk = stat_elem.get('PK')
-            lines = []
-            for line in self.db['root'].iter('DBStatLine'):
-                sr = line.find('.//StatRecipe[@CLASS="DBRef"]')
-                if sr is not None and sr.get('PK') == stat_pk:
-                    lines.append(line)
+            lines = [l for l in self.db['root'].iter('DBStatLine')
+                     if (sr := l.find('.//StatRecipe[@CLASS="DBRef"]')) is not None
+                     and sr.get('PK') == stat_pk]
 
-            if lines:
-                self.result_text.insert(tk.END, f"SKUTEČNÉ SLOŽENÍ ({len(lines)} složek):\n", "subheader")
-                self.result_text.insert(tk.END, f"{'─' * 80}\n")
+            for i, line in enumerate(lines, 1):
+                bc_name_elem = line.find('.//BCName[@CLASS="String"]')
+                bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
 
-                labels_data = []
-                values_data = []
-                colors_data = []
-                total = 0
+                valve_elem = line.find('.//ValveNr[@CLASS="Integer"]')
+                bc_valve = valve_elem.get('VAL', '—') if valve_elem is not None else '—'
 
-                for line in lines:
-                    bc_name_elem = line.find('.//BCName[@CLASS="String"]')
-                    bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
+                real_val_elem = line.find('.//Real_Value[@CLASS="Integer"]')
+                value = int(real_val_elem.get('VAL', '0')) if real_val_elem is not None else 0
+                total += value
 
-                    valve_elem = line.find('.//ValveNr[@CLASS="Integer"]')
-                    bc_valve = valve_elem.get('VAL', '') if valve_elem is not None else ''
+                charge_elem = line.find('.//Charge[@CLASS="String"]')
+                bc_charge = charge_elem.get('VAL', '—') if charge_elem is not None else '—'
 
-                    real_val_elem = line.find('.//Real_Value[@CLASS="Integer"]')
-                    value = int(real_val_elem.get('VAL', '0')) if real_val_elem is not None else 0
-                    total += value
+                mix_date_elem = line.find('.//MixDate[@CLASS="DBDate"]')
+                mix_time = '—'
+                if mix_date_elem is not None:
+                    ts = mix_date_elem.get('TIME')
+                    if ts:
+                        try:
+                            mix_time = datetime.fromtimestamp(int(ts) / 1000.0).strftime('%d.%m.%Y %H:%M:%S')
+                        except:
+                            pass
 
-                    charge_elem = line.find('.//Charge[@CLASS="String"]')
-                    bc_charge = charge_elem.get('VAL', '') if charge_elem is not None else ''
+                labels_data.append(bc_name)
+                values_data.append(value)
+                colors_data.append(self.get_color_for_name(bc_name))
 
-                    labels_data.append(bc_name)
-                    values_data.append(value)
-                    colors_data.append(self.get_color_for_name(bc_name))
-
-                    charge_info = f"  [Šarže: {bc_charge}]" if bc_charge else ""
-                    if bc_valve:
-                        self.result_text.insert(tk.END,
-                            f"  • {bc_name:<30} (Ventil {bc_valve:>2}):  {value:>6} g{charge_info}\n", "ingredient")
-                    else:
-                        self.result_text.insert(tk.END,
-                            f"  • {bc_name:<30}              {value:>6} g{charge_info}\n", "ingredient")
-
-                self.result_text.insert(tk.END, f"\n{'─' * 80}\n")
-                self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
-
-                self.display_recipe_history(recipe_pk, name)
-
-                if MATPLOTLIB_AVAILABLE and values_data:
-                    self.draw_pie_chart(labels_data, values_data, colors_data, name)
+                self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
+                self.result_text.insert(tk.END, f"   -čas nadávkování:    {mix_time}\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value} g\n\n", "ing_detail")
 
         else:
-            # Statický recept z DBLine
-            lines = []
-            for line in self.db['root'].iter('DBLine'):
-                recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
-                if recipe_ref is not None and recipe_ref.get('PK') == recipe_pk:
-                    lines.append(line)
+            # Složení ze statického receptu (DBLine) — použij lookup tabulku
+            lines = self._lines_by_recipe.get(recipe_pk, [])
 
-            if lines:
-                self.result_text.insert(tk.END, f"SLOŽENÍ ({len(lines)} složek):\n", "subheader")
-                self.result_text.insert(tk.END, f"{'─' * 80}\n")
+            for i, line in enumerate(lines, 1):
+                value_elem = line.find('.//Value[@CLASS="Integer"]')
+                value = int(value_elem.get('VAL', '0')) if value_elem is not None else 0
+                total += value
 
-                labels_data = []
-                values_data = []
-                colors_data = []
-                total = 0
+                basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
+                if basecolor_ref is None:
+                    continue
+                bc = self.find_basecolor(basecolor_ref.get('PK'))
+                if bc is None:
+                    continue
 
-                for line in lines:
-                    value_elem = line.find('.//Value[@CLASS="Integer"]')
-                    value = int(value_elem.get('VAL', '0')) if value_elem is not None else 0
-                    total += value
+                bc_name_elem = bc.find('.//Name[@CLASS="String"]')
+                bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
 
-                    basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
-                    if basecolor_ref is not None:
-                        bc_pk = basecolor_ref.get('PK')
-                        basecolor = self.find_basecolor(bc_pk)
-                        if basecolor:
-                            bc_name_elem = basecolor.find('.//Name[@CLASS="String"]')
-                            bc_name = bc_name_elem.get('VAL', f'Barva PK={bc_pk}') if bc_name_elem is not None else f'Barva PK={bc_pk}'
+                bc_valve_elem = bc.find('.//ValveNr[@CLASS="Integer"]')
+                bc_valve = bc_valve_elem.get('VAL', '—') if bc_valve_elem is not None else '—'
 
-                            bc_valve_elem = basecolor.find('.//ValveNr[@CLASS="Integer"]')
-                            bc_valve = bc_valve_elem.get('VAL', '') if bc_valve_elem is not None else ''
+                bc_charge_elem = bc.find('.//Charge[@CLASS="String"]')
+                bc_charge = bc_charge_elem.get('VAL', '—') if bc_charge_elem is not None else '—'
 
-                            bc_charge_elem = basecolor.find('.//Charge[@CLASS="String"]')
-                            bc_charge = bc_charge_elem.get('VAL', '') if bc_charge_elem is not None else ''
+                labels_data.append(bc_name)
+                values_data.append(value)
+                colors_data.append(self.get_color_for_name(bc_name))
 
-                            labels_data.append(bc_name)
-                            values_data.append(value)
-                            colors_data.append(self.get_color_for_name(bc_name))
+                self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
+                self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value} g\n\n", "ing_detail")
 
-                            charge_info = f"  [Šarže: {bc_charge}]" if bc_charge else ""
-                            if bc_valve:
-                                self.result_text.insert(tk.END,
-                                    f"  • {bc_name:<30} (Ventil {bc_valve:>2}):  {value:>6} g{charge_info}\n", "ingredient")
-                            else:
-                                self.result_text.insert(tk.END,
-                                    f"  • {bc_name:<30}              {value:>6} g{charge_info}\n", "ingredient")
+        if lines:
+            self.result_text.insert(tk.END, f"{'─' * 60}\n")
+            self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
 
-                self.result_text.insert(tk.END, f"\n{'─' * 80}\n")
-                self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
+        self.display_recipe_history(recipe_pk, name)
 
-                self.display_recipe_history(recipe_pk, name)
+        if MATPLOTLIB_AVAILABLE and values_data:
+            self.draw_pie_chart(labels_data, values_data, colors_data, name)
 
-                if MATPLOTLIB_AVAILABLE and values_data:
-                    self.draw_pie_chart(labels_data, values_data, colors_data, name)
-
-        self.result_text.tag_config("header", font=(self.font_mono[0], 16, "bold"), foreground="blue")
-        self.result_text.tag_config("subheader", font=(self.font_mono[0], 13, "bold"))
+        # Tagy
+        self.result_text.tag_config("header",     font=(self.font_mono[0], 15, "bold"), foreground="#1a5276")
+        self.result_text.tag_config("ing_name",   font=(self.font_mono[0], 12, "bold"))
+        self.result_text.tag_config("ing_detail", font=self.font_mono)
+        self.result_text.tag_config("total",      font=(self.font_mono[0], 12, "bold"), foreground="green")
+        self.result_text.tag_config("subheader",  font=(self.font_mono[0], 13, "bold"))
         self.result_text.tag_config("ingredient", font=self.font_mono)
-        self.result_text.tag_config("total", font=(self.font_mono[0], 13, "bold"), foreground="green")
         self.result_text.tag_config("history_header", font=(self.font_mono[0], 13, "bold"), foreground="purple")
-        self.result_text.tag_config("history_item", font=self.font_mono_sm, foreground="#555")
+        self.result_text.tag_config("history_item",   font=self.font_mono_sm, foreground="#555")
 
     def display_recipe_history(self, recipe_pk, recipe_name):
         """
@@ -1025,25 +1049,24 @@ class ColorDatabaseGUI:
 
     def advanced_filter(self):
         """
-        Pokročilé filtrování (záložka „Pokročilé filtrování").
-
-        Kombinuje filtry: rozsah data+času a číslo ventilu.
-        Výsledky obsahují sloupec Šarže ze všech složek receptu.
-        Rychlost zajišťují předpočítané lookup tabulky (_build_lookup_tables).
+        Pokročilé filtrování — kombinuje datum+čas, ventil a barvu.
+        Výsledky zobrazí v tabulce, dvojklik otevře přehledný detail.
+        Rychlost zajišťují předpočítané lookup tabulky — žádné O(n²).
         """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
 
         start_date_str = self.adv_start_date.get().strip()
-        end_date_str = self.adv_end_date.get().strip()
+        end_date_str   = self.adv_end_date.get().strip()
         start_time_str = self.adv_start_time.get().strip()
-        end_time_str = self.adv_end_time.get().strip()
-        valve_str = self.adv_valve.get().strip()
+        end_time_str   = self.adv_end_time.get().strip()
+        valve_str      = self.adv_valve.get().strip()
+        color_str      = self.adv_color.get().strip().lower()
 
         try:
             start_datetime = None
-            end_datetime = None
+            end_datetime   = None
             if start_date_str:
                 start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
                 start_time = datetime.strptime(start_time_str, '%H:%M').time()
@@ -1080,9 +1103,15 @@ class ColorDatabaseGUI:
 
             recipe_pk = recipe.get('PK')
 
+            # Filtr ventilu — O(1) lookup
             if valve_str:
-                valves_used = self.get_recipe_valves(recipe_pk)
-                if valve_str not in valves_used:
+                if valve_str not in self._recipe_valves.get(recipe_pk, []):
+                    continue
+
+            # Filtr barvy — O(1) lookup
+            if color_str:
+                colors = self._recipe_colors.get(recipe_pk, [])
+                if not any(color_str in c.lower() for c in colors):
                     continue
 
             results.append((recipe, recipe_datetime))
@@ -1090,28 +1119,21 @@ class ColorDatabaseGUI:
         results.sort(key=lambda x: x[1], reverse=True)
 
         for recipe, recipe_datetime in results:
-            pk = recipe.get('PK', 'N/A')
-
+            pk        = recipe.get('PK', 'N/A')
             name_elem = recipe.find('.//Name[@CLASS="String"]')
-            name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
-
+            name      = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
             amount_elem = recipe.find('.//BezugsMenge[@CLASS="Double"]')
-            amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
-
-            date_str = recipe_datetime.strftime('%d.%m.%Y')
-            time_str = recipe_datetime.strftime('%H:%M:%S')
-
-            valves = self.get_recipe_valves(pk)
-            valves_str = ', '.join(valves) if valves else 'N/A'
-
-            charges = self.get_recipe_charges(pk)
-            charges_str = ', '.join(charges) if charges else ''
-
+            amount    = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
+            date_str  = recipe_datetime.strftime('%d.%m.%Y')
+            time_str  = recipe_datetime.strftime('%H:%M:%S')
+            valves    = self._recipe_valves.get(pk, [])
+            charges   = self._recipe_charges.get(pk, [])
             self.adv_tree.insert('', tk.END,
-                values=(pk, name, amount, date_str, time_str, valves_str, charges_str),
+                values=(pk, name, amount, date_str, time_str,
+                        ', '.join(sorted(valves)), ', '.join(charges)),
                 tags=(pk,))
 
-        self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů podle pokročilých filtrů")
+        self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů")
 
     def get_recipe_valves(self, recipe_pk):
         """Vrátit seřazený seznam čísel ventilů pro daný recept (z lookup tabulky)."""
@@ -1132,18 +1154,244 @@ class ColorDatabaseGUI:
         self.status_bar.config(text="Připraveno")
 
     def show_advanced_recipe_detail(self, event):
-        """Dvojklik v tabulce pokročilého filtrování — přepnout na detail receptu."""
+        """Dvojklik v tabulce pokročilého filtrování — přepnout na přehledný detail receptu."""
         selection = self.adv_tree.selection()
         if not selection:
             return
         item = self.adv_tree.item(selection[0])
-        pk = item['values'][0]
+        pk = str(item['values'][0])
         for recipe in self.db['root'].iter('DBRecipe'):
-            if recipe.get('PK') == str(pk):
+            if recipe.get('PK') == pk:
                 self.notebook.select(0)
                 self.result_text.delete(1.0, tk.END)
-                self.display_recipe(recipe)
+                self.display_recipe(recipe, None)
                 break
+
+    def export_results(self, source):
+        """
+        Exportovat aktuálně zobrazené výsledky do souboru.
+
+        source: 'search' = záložka Vyhledávání, 'advanced' = Pokročilé filtrování
+        Zobrazí dialog s výběrem formátu (TXT, CSV, PDF).
+        """
+        # Získat text k exportu
+        if source == 'search':
+            content = self.result_text.get(1.0, tk.END).strip()
+        else:
+            content = self.adv_result_text.get(1.0, tk.END).strip()
+
+        if not content:
+            messagebox.showwarning("Export", "Nejsou žádná data k exportu.\nNejprve proveďte vyhledávání nebo filtrování.")
+            return
+
+        # Dialog pro výběr formátu
+        fmt_win = tk.Toplevel(self.root)
+        fmt_win.title("Exportovat jako...")
+        fmt_win.geometry("320x180")
+        fmt_win.resizable(False, False)
+        fmt_win.grab_set()
+        fmt_win.transient(self.root)
+
+        frame = ttk.Frame(fmt_win, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Vyberte formát exportu:", font=self.font_ui_bold).pack(pady=(0, 15))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack()
+
+        def do_export(fmt):
+            fmt_win.destroy()
+            self._do_export(content, fmt, source)
+
+        if TTKBOOTSTRAP_AVAILABLE:
+            ttk.Button(btn_frame, text="📄 TXT", command=lambda: do_export('txt'),
+                       bootstyle="secondary", width=10).pack(side=tk.LEFT, padx=8)
+            ttk.Button(btn_frame, text="📊 CSV", command=lambda: do_export('csv'),
+                       bootstyle="info", width=10).pack(side=tk.LEFT, padx=8)
+            pdf_btn = ttk.Button(btn_frame, text="📑 PDF", command=lambda: do_export('pdf'),
+                                 bootstyle="danger", width=10)
+        else:
+            ttk.Button(btn_frame, text="📄 TXT", command=lambda: do_export('txt'), width=10).pack(side=tk.LEFT, padx=8)
+            ttk.Button(btn_frame, text="📊 CSV", command=lambda: do_export('csv'), width=10).pack(side=tk.LEFT, padx=8)
+            pdf_btn = ttk.Button(btn_frame, text="📑 PDF", command=lambda: do_export('pdf'), width=10)
+
+        pdf_btn.pack(side=tk.LEFT, padx=8)
+        if not REPORTLAB_AVAILABLE:
+            pdf_btn.config(state='disabled')
+            ttk.Label(frame, text="PDF: nainstalujte reportlab (pip install reportlab)",
+                      font=self.font_ui_sm, foreground="gray").pack(pady=(10, 0))
+
+    def _do_export(self, content, fmt, source):
+        """Provést samotný export do zvoleného formátu."""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        default_name = f"export_{timestamp}"
+
+        if fmt == 'txt':
+            filepath = filedialog.asksaveasfilename(
+                title="Uložit jako TXT",
+                defaultextension=".txt",
+                initialfile=default_name + ".txt",
+                filetypes=[("Textové soubory", "*.txt"), ("Všechny soubory", "*.*")]
+            )
+            if not filepath:
+                return
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"Databáze barev — Model Obaly Hostinné\n")
+                f.write(f"Export: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
+                f.write("=" * 70 + "\n\n")
+                f.write(content)
+            messagebox.showinfo("Export", f"✓ Soubor uložen:\n{filepath}")
+
+        elif fmt == 'csv':
+            filepath = filedialog.asksaveasfilename(
+                title="Uložit jako CSV",
+                defaultextension=".csv",
+                initialfile=default_name + ".csv",
+                filetypes=[("CSV soubory", "*.csv"), ("Všechny soubory", "*.*")]
+            )
+            if not filepath:
+                return
+            rows = self._parse_content_to_rows(content, source)
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f, delimiter=';')
+                writer.writerow(["Recept", "PK", "Datum", "Složka", "Ventil", "Šarže", "Množství (g)"])
+                for row in rows:
+                    writer.writerow(row)
+            messagebox.showinfo("Export", f"✓ Soubor uložen:\n{filepath}")
+
+        elif fmt == 'pdf':
+            filepath = filedialog.asksaveasfilename(
+                title="Uložit jako PDF",
+                defaultextension=".pdf",
+                initialfile=default_name + ".pdf",
+                filetypes=[("PDF soubory", "*.pdf"), ("Všechny soubory", "*.*")]
+            )
+            if not filepath:
+                return
+            self._export_pdf(content, filepath)
+            messagebox.showinfo("Export", f"✓ Soubor uložen:\n{filepath}")
+
+    def _parse_content_to_rows(self, content, source):
+        """
+        Převést textový obsah na řádky pro CSV export.
+        Parsuje strukturu výstupu a vrátí seznam řádků
+        [recept, pk, datum, složka, ventil, šarže, množství].
+        """
+        rows = []
+        current_recipe = ''
+        current_pk = ''
+        current_date = ''
+
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith('─') or line.startswith('='):
+                continue
+
+            # Záhlaví receptu — "1.  286  (PK: 18)" nebo "RECEPT: 286"
+            if line.startswith('RECEPT:') or (line and line[0].isdigit() and '.  ' in line):
+                if 'PK:' in line:
+                    # formát pokročilého filtrování: "1.  286  (PK: 18)"
+                    parts = line.split('(PK:')
+                    current_recipe = parts[0].split('.', 1)[-1].strip() if '.' in parts[0] else parts[0].strip()
+                    current_pk = parts[1].replace(')', '').strip() if len(parts) > 1 else ''
+                else:
+                    # formát vyhledávání: "RECEPT: 286  [míchání #12979]"
+                    current_recipe = line.replace('RECEPT:', '').split('[')[0].strip()
+                    current_pk = ''
+                current_date = ''
+
+            # Datum
+            elif 'Datum' in line or '📅' in line:
+                current_date = line.split(':', 1)[-1].strip() if ':' in line else ''
+
+            # Složka — "• Blue 17" nebo "  • Blue 17"
+            elif line.startswith('•'):
+                ingredient = line.lstrip('• ').strip()
+                rows.append([current_recipe, current_pk, current_date, ingredient, '', '', ''])
+
+            # Detail složky — "Ventil: 14   |   Šarže: 2BADSL0782   |   Množství: 800025 g"
+            elif 'Ventil:' in line and rows:
+                parts = [p.strip() for p in line.split('|')]
+                ventil = ''
+                sarze = ''
+                mnozstvi = ''
+                for p in parts:
+                    if p.startswith('Ventil:'):
+                        ventil = p.replace('Ventil:', '').strip()
+                    elif p.startswith('Šarže:'):
+                        sarze = p.replace('Šarže:', '').strip()
+                    elif p.startswith('Množství:'):
+                        mnozstvi = p.replace('Množství:', '').replace('g', '').strip()
+                # Doplnit do posledního řádku
+                rows[-1][4] = ventil
+                rows[-1][5] = sarze
+                rows[-1][6] = mnozstvi
+
+        return rows
+
+    def _export_pdf(self, content, filepath):
+        """Exportovat obsah do PDF pomocí reportlab."""
+        doc = SimpleDocTemplate(
+            filepath,
+            pagesize=A4,
+            leftMargin=20*mm, rightMargin=20*mm,
+            topMargin=20*mm, bottomMargin=20*mm
+        )
+
+        styles = getSampleStyleSheet()
+        style_title = ParagraphStyle('title',
+            fontSize=14, fontName='Helvetica-Bold',
+            textColor=rl_colors.HexColor('#1a5276'), spaceAfter=4)
+        style_subtitle = ParagraphStyle('subtitle',
+            fontSize=9, fontName='Helvetica',
+            textColor=rl_colors.HexColor('#555555'), spaceAfter=10)
+        style_recipe = ParagraphStyle('recipe',
+            fontSize=12, fontName='Helvetica-Bold',
+            textColor=rl_colors.HexColor('#1a5276'), spaceBefore=10, spaceAfter=3)
+        style_date = ParagraphStyle('date',
+            fontSize=9, fontName='Helvetica',
+            textColor=rl_colors.HexColor('#555555'), spaceAfter=4)
+        style_ingredient = ParagraphStyle('ingredient',
+            fontSize=10, fontName='Helvetica-Bold',
+            leftIndent=10, spaceBefore=4, spaceAfter=1)
+        style_detail = ParagraphStyle('detail',
+            fontSize=9, fontName='Helvetica',
+            textColor=rl_colors.HexColor('#333333'),
+            leftIndent=20, spaceAfter=2)
+        style_normal = ParagraphStyle('normal',
+            fontSize=9, fontName='Helvetica',
+            textColor=rl_colors.HexColor('#333333'), spaceAfter=2)
+
+        story = []
+
+        # Hlavička
+        story.append(Paragraph("Databáze barev — Model Obaly Hostinné", style_title))
+        story.append(Paragraph(f"Export: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", style_subtitle))
+        story.append(HRFlowable(width="100%", thickness=1, color=rl_colors.HexColor('#1a5276')))
+        story.append(Spacer(1, 6*mm))
+
+        # Parsovat obsah
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                story.append(Spacer(1, 2*mm))
+                continue
+            if stripped.startswith('─') or stripped.startswith('='):
+                story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#cccccc')))
+                continue
+            if stripped.startswith('RECEPT:') or (stripped and stripped[0].isdigit() and '.  ' in stripped):
+                story.append(Paragraph(stripped, style_recipe))
+            elif '📅' in stripped or 'Datum' in stripped:
+                story.append(Paragraph(stripped.replace('📅', ''), style_date))
+            elif stripped.startswith('•'):
+                story.append(Paragraph(stripped.lstrip('• '), style_ingredient))
+            elif 'Ventil:' in stripped:
+                story.append(Paragraph(stripped, style_detail))
+            else:
+                story.append(Paragraph(stripped, style_normal))
+
+        doc.build(story)
 
     def clear_search(self):
         """Vymazat vstupní pole vyhledávání a vrátit focus."""
