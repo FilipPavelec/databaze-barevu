@@ -23,6 +23,13 @@ from datetime import datetime
 import os
 import csv
 
+# Pokus o načtení tkcalendar pro výběr data kliknutím.
+try:
+    from tkcalendar import DateEntry
+    TKCALENDAR_AVAILABLE = True
+except ImportError:
+    TKCALENDAR_AVAILABLE = False
+
 # Pokus o načtení reportlab pro export do PDF.
 try:
     from reportlab.lib.pagesizes import A4
@@ -296,17 +303,28 @@ class ColorDatabaseGUI:
         inner_input.pack(fill=tk.BOTH, expand=True)
         inner_input.columnconfigure(1, weight=1)
 
-        ttk.Label(inner_input, text="Od (RRRR-MM-DD):", font=self.font_ui_bold).grid(
+        ttk.Label(inner_input, text="Od:", font=self.font_ui_bold).grid(
             row=0, column=0, sticky=tk.W, padx=5, pady=8)
-        self.start_date_entry = ttk.Entry(inner_input, font=self.font_ui, width=20)
+        if TKCALENDAR_AVAILABLE:
+            self.start_date_entry = DateEntry(inner_input, font=self.font_ui, width=18,
+                                              date_pattern='yyyy-mm-dd',
+                                              year=2020, month=1, day=1)
+        else:
+            self.start_date_entry = ttk.Entry(inner_input, font=self.font_ui, width=20)
+            self.start_date_entry.insert(0, "2020-01-01")
         self.start_date_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=8)
-        self.start_date_entry.insert(0, "2020-01-01")
 
-        ttk.Label(inner_input, text="Do (RRRR-MM-DD):", font=self.font_ui_bold).grid(
+        ttk.Label(inner_input, text="Do:", font=self.font_ui_bold).grid(
             row=1, column=0, sticky=tk.W, padx=5, pady=8)
-        self.end_date_entry = ttk.Entry(inner_input, font=self.font_ui, width=20)
+        if TKCALENDAR_AVAILABLE:
+            now = datetime.now()
+            self.end_date_entry = DateEntry(inner_input, font=self.font_ui, width=18,
+                                            date_pattern='yyyy-mm-dd',
+                                            year=now.year, month=now.month, day=now.day)
+        else:
+            self.end_date_entry = ttk.Entry(inner_input, font=self.font_ui, width=20)
+            self.end_date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.end_date_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=8)
-        self.end_date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
 
         button_frame = ttk.Frame(inner_input)
         button_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky=tk.W, padx=5)
@@ -375,15 +393,26 @@ class ColorDatabaseGUI:
 
         ttk.Label(inner_filter, text="📅 Datum od:", font=self.font_ui_bold).grid(
             row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.adv_start_date = ttk.Entry(inner_filter, font=self.font_ui, width=15)
+        if TKCALENDAR_AVAILABLE:
+            self.adv_start_date = DateEntry(inner_filter, font=self.font_ui, width=13,
+                                            date_pattern='yyyy-mm-dd',
+                                            year=2020, month=1, day=1)
+        else:
+            self.adv_start_date = ttk.Entry(inner_filter, font=self.font_ui, width=15)
+            self.adv_start_date.insert(0, "2020-01-01")
         self.adv_start_date.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
-        self.adv_start_date.insert(0, "2020-01-01")
 
         ttk.Label(inner_filter, text="📅 Datum do:", font=self.font_ui_bold).grid(
             row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.adv_end_date = ttk.Entry(inner_filter, font=self.font_ui, width=15)
+        if TKCALENDAR_AVAILABLE:
+            now = datetime.now()
+            self.adv_end_date = DateEntry(inner_filter, font=self.font_ui, width=13,
+                                          date_pattern='yyyy-mm-dd',
+                                          year=now.year, month=now.month, day=now.day)
+        else:
+            self.adv_end_date = ttk.Entry(inner_filter, font=self.font_ui, width=15)
+            self.adv_end_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.adv_end_date.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
-        self.adv_end_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
 
         ttk.Label(inner_filter, text="🕐 Čas od (HH:MM):", font=self.font_ui_bold).grid(
             row=2, column=0, sticky=tk.W, padx=5, pady=5)
@@ -790,7 +819,7 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"   -čas nadávkování:    {mix_time}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value} g\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 1000:.3f} kg\n\n", "ing_detail")
 
         else:
             # Složení ze statického receptu (DBLine) — použij lookup tabulku
@@ -824,11 +853,11 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value} g\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value / 1000:.3f} kg\n\n", "ing_detail")
 
         if lines:
             self.result_text.insert(tk.END, f"{'─' * 60}\n")
-            self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
+            self.result_text.insert(tk.END, f"CELKEM: {total / 1000:.3f} kg\n\n", "total")
 
         self.display_recipe_history(recipe_pk, name)
 
