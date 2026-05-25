@@ -17,50 +17,67 @@ Závislosti (volitelné, aplikace funguje i bez nich):
 """
 
 import tkinter as tk
+# filedialog = dialog pro výběr souboru, messagebox = vyskakovací okna (chyby, varování),
+# scrolledtext = textová oblast s posuvníkem
 from tkinter import filedialog, messagebox, scrolledtext
+
+# xml.etree.ElementTree = standardní knihovna pro čtení XML souborů
+# Používáme ji k načtení exportu z míchacího stroje (soubor .XML)
 import xml.etree.ElementTree as ET
+
+# datetime = práce s datem a časem (porovnávání, formátování, výpočet "před X dny")
 from datetime import datetime
+
+# os = práce se soubory a cestami (zjistit, zda soubor existuje, získat název souboru)
 import os
+
+# csv = zápis do CSV souborů při exportu výsledků
 import csv
 
 # Pokus o načtení tkcalendar pro výběr data kliknutím.
+# Pokud není nainstalován, použijí se místo toho obyčejná textová pole.
 try:
-    from tkcalendar import DateEntry
+    from tkcalendar import DateEntry  # widget s kalendářem pro pohodlný výběr data
     TKCALENDAR_AVAILABLE = True
 except ImportError:
-    TKCALENDAR_AVAILABLE = False
+    TKCALENDAR_AVAILABLE = False  # aplikace funguje i bez tkcalendar
 
 # Pokus o načtení reportlab pro export do PDF.
+# reportlab umí generovat PDF soubory s formátováním, styly a podporou diakritiky.
+# Pokud není nainstalován, tlačítko PDF bude v exportním dialogu zašedlé (disabled).
 try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
-    from reportlab.lib import colors as rl_colors
+    from reportlab.lib.pagesizes import A4                          # velikost stránky A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # styly textu
+    from reportlab.lib.units import mm                              # milimetry pro okraje
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable  # stavební bloky PDF
+    from reportlab.lib import colors as rl_colors                   # barvy pro nadpisy a oddělovače
     REPORTLAB_AVAILABLE = True
 except ImportError:
-    REPORTLAB_AVAILABLE = False
+    REPORTLAB_AVAILABLE = False  # aplikace funguje i bez reportlab, jen bez PDF exportu
 
 # Pokus o načtení ttkbootstrap pro moderní vzhled.
-# Pokud není nainstalován, použije se standardní tkinter ttk.
+# ttkbootstrap rozšiřuje standardní tkinter ttk o moderní témata (cosmo, flatly, darkly...).
+# Pokud není nainstalován, použije se standardní tkinter ttk — aplikace vypadá trochu starší,
+# ale funguje úplně stejně.
 try:
     import ttkbootstrap as ttk
-    from ttkbootstrap.constants import *
+    from ttkbootstrap.constants import *  # konstanty jako PRIMARY, SUCCESS, DANGER pro styly tlačítek
     TTKBOOTSTRAP_AVAILABLE = True
 except ImportError:
-    from tkinter import ttk
+    from tkinter import ttk               # záložní standardní ttk bez moderního vzhledu
     TTKBOOTSTRAP_AVAILABLE = False
 
 # Pokus o načtení matplotlib pro koláčový graf složení.
-# Pokud není nainstalován, záložka vyhledávání zobrazí jen textový detail.
+# matplotlib je populární knihovna pro kreslení grafů v Pythonu.
+# Pokud není nainstalován, záložka vyhledávání zobrazí jen textový detail (bez grafu).
 try:
     import matplotlib
-    matplotlib.use('TkAgg')          # backend kompatibilní s tkinter
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    matplotlib.use('TkAgg')          # backend kompatibilní s tkinter — vykresluje graf přímo do okna
+    from matplotlib.figure import Figure                              # plocha pro kreslení grafu
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # propojení matplotlib s tkinter
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
-    MATPLOTLIB_AVAILABLE = False
+    MATPLOTLIB_AVAILABLE = False  # aplikace funguje i bez matplotlib, jen bez koláčového grafu
 
 
 class ColorDatabaseGUI:
@@ -74,21 +91,23 @@ class ColorDatabaseGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("🎨 Databáze barev — Model Obaly Hostinné")
-        self.root.geometry("1200x800")
-        self.root.minsize(1000, 650)
+        self.root.geometry("1200x800")   # výchozí velikost okna v pixelech (šířka x výška)
+        self.root.minsize(1000, 650)     # minimální velikost — menší okno by bylo nepřehledné
 
         # Načtená databáze — None dokud uživatel nevybere soubor.
         # Po načtení: {'tree': ET.ElementTree, 'root': ET.Element}
+        # ET.ElementTree = celý XML strom, ET.Element = kořenový element (přístup k datům)
         self.db = None
-        self.xml_file = None  # cesta k aktuálně načtenému souboru
+        self.xml_file = None  # cesta k aktuálně načtenému souboru (zobrazuje se v záhlaví)
 
-        # Lookup tabulky předpočítané při načtení databáze (viz _build_lookup_tables)
-        self._basecolor_by_pk = {}   # PK -> DBBaseColor element
-        self._recipe_valves   = {}   # recipe_pk -> [ventil, ...]
-        self._recipe_charges  = {}   # recipe_pk -> [šarže, ...]
+        # Lookup tabulky předpočítané při načtení databáze (viz _build_lookup_tables).
+        # Jsou to slovníky (dict) pro O(1) přístup — místo pomalého procházení celého XML.
+        self._basecolor_by_pk = {}   # PK (číslo) → DBBaseColor element (data o barvě)
+        self._recipe_valves   = {}   # recipe_pk → [číslo ventilu, ...] (ventily receptu)
+        self._recipe_charges  = {}   # recipe_pk → [šarže, ...] (šarže složek receptu)
 
-        self._setup_fonts()
-        self.setup_ui()
+        self._setup_fonts()   # vybrat vhodné fonty pro aktuální systém
+        self.setup_ui()       # sestavit celé grafické rozhraní
 
     def _setup_fonts(self):
         """
@@ -556,58 +575,73 @@ class ColorDatabaseGUI:
           _recipe_charges   — recipe_pk → [čísla šarží]
 
         Filtrování pak trvá ~20ms místo 17 sekund.
+
+        Proč jsou slovníky rychlejší než iterace?
+          - Iterace (for cyklus): musíme projít všechny záznamy → čas roste s počtem záznamů
+          - Slovník (dict): Python ukládá klíče do hashovací tabulky → přístup je vždy O(1),
+            tedy stejně rychlý bez ohledu na to, kolik záznamů slovník obsahuje.
         """
-        from collections import defaultdict
+        from collections import defaultdict  # defaultdict automaticky vytvoří prázdný seznam pro nový klíč
 
         # Krok 1: slovník PK → DBBaseColor element pro O(1) přístup
+        # DBBaseColor = záznam o základní barvě (ventil, šarže, název)
+        # Místo: for bc in root.iter('DBBaseColor'): if bc.get('PK') == hledane_pk: ...
+        # Stačí: self._basecolor_by_pk[hledane_pk]  → okamžitý výsledek
         self._basecolor_by_pk = {}
         for bc in root.iter('DBBaseColor'):
-            pk = bc.get('PK')
+            pk = bc.get('PK')   # PK = primární klíč, jednoznačný identifikátor záznamu
             if pk:
-                self._basecolor_by_pk[pk] = bc
+                self._basecolor_by_pk[pk] = bc  # uložit element pod jeho PK
 
         # Krok 2: pro každý recept sestavit seznam ventilů, šarží, názvů barev a DBLine z DBLine
+        # DBLine = jeden řádek receptu (jedna složka — barva + množství)
         recipe_valves  = defaultdict(list)   # recipe_pk -> [číslo ventilu, ...]
         recipe_charges = defaultdict(list)   # recipe_pk -> [šarže, ...]
         recipe_colors  = defaultdict(list)   # recipe_pk -> [název barvy, ...]
         lines_by_recipe = defaultdict(list)  # recipe_pk -> [DBLine element, ...]
 
         for line in root.iter('DBLine'):
+            # Najít odkaz na recept, ke kterému tento řádek patří
             recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
             if recipe_ref is None:
-                continue
-            r_pk = recipe_ref.get('PK')
+                continue  # řádek bez odkazu na recept — přeskočit
+            r_pk = recipe_ref.get('PK')  # PK receptu, ke kterému patří tento řádek
             if not r_pk:
-                continue
+                continue  # chybí PK — přeskočit
 
-            lines_by_recipe[r_pk].append(line)
+            lines_by_recipe[r_pk].append(line)  # přidat řádek do seznamu pro daný recept
 
+            # Najít odkaz na základní barvu (DBBaseColor) tohoto řádku
             basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
             if basecolor_ref is None:
                 continue
-            bc_pk = basecolor_ref.get('PK')
-            bc = self._basecolor_by_pk.get(bc_pk)
+            bc_pk = basecolor_ref.get('PK')  # PK základní barvy
+            bc = self._basecolor_by_pk.get(bc_pk)  # O(1) lookup — okamžitý přístup
             if bc is None:
-                continue
+                continue  # barva s tímto PK neexistuje — přeskočit
 
+            # Přidat číslo ventilu do seznamu ventilů receptu (bez duplicit)
             valve_elem = bc.find('.//ValveNr[@CLASS="Integer"]')
             if valve_elem is not None:
                 valve = valve_elem.get('VAL', '')
                 if valve and valve not in recipe_valves[r_pk]:
                     recipe_valves[r_pk].append(valve)
 
+            # Přidat šarži do seznamu šarží receptu (bez duplicit)
             charge_elem = bc.find('.//Charge[@CLASS="String"]')
             if charge_elem is not None:
                 charge = charge_elem.get('VAL', '')
                 if charge and charge not in recipe_charges[r_pk]:
                     recipe_charges[r_pk].append(charge)
 
+            # Přidat název barvy do seznamu barev receptu (bez duplicit)
             name_elem = bc.find('.//Name[@CLASS="String"]')
             if name_elem is not None:
                 color_name = name_elem.get('VAL', '')
                 if color_name and color_name not in recipe_colors[r_pk]:
                     recipe_colors[r_pk].append(color_name)
 
+        # Převést defaultdict na obyčejný dict — úspornější paměť, rychlejší přístup
         self._recipe_valves    = dict(recipe_valves)
         self._recipe_charges   = dict(recipe_charges)
         self._recipe_colors    = dict(recipe_colors)
@@ -639,17 +673,29 @@ class ColorDatabaseGUI:
 
         Formát skeneru: "286.........#00012979"
           - část za '#' = PK míchání (DBStatRecipe) → "00012979"
+            Toto číslo identifikuje konkrétní míchání (kdy, kolik, jaké šarže).
+          - část před první tečkou = kód receptu → "286"
+            Toto číslo identifikuje recept (vzorec složení).
+
         Pokud '#' není, bereme část před první tečkou.
+        Pokud ani tečka není, vrátíme vstup beze změny.
+
+        Příklady:
+          "286.........#00012979" → "00012979"  (hledáme konkrétní míchání)
+          "286.........."         → "286"        (hledáme recept podle kódu)
+          "286"                   → "286"        (přímý kód, beze změny)
         """
         if '#' in barcode:
-            code = barcode.split('#', 1)[1].strip()
+            # Čárový kód obsahuje '#' — část za ním je PK záznamu DBStatRecipe
+            code = barcode.split('#', 1)[1].strip()  # split('#', 1) = rozdělit jen na prvním '#'
             if code:
-                return code
+                return code  # vrátit PK míchání (např. "00012979")
         if '.' in barcode:
+            # Čárový kód obsahuje tečky — část před první tečkou je kód receptu
             code = barcode.split('.')[0].strip()
             if code:
-                return code
-        return barcode
+                return code  # vrátit kód receptu (např. "286")
+        return barcode  # žádný speciální formát — vrátit vstup beze změny
 
     def search_by_code(self, code):
         """
@@ -657,50 +703,76 @@ class ColorDatabaseGUI:
 
         Vrací seznam tuplů (recipe_elem, stat_elem_nebo_None).
         Pokud kód odpovídá PK záznamu DBStatRecipe, vrátí recept + konkrétní míchání.
+
+        Logika hledání (v tomto pořadí):
+          1. Hledáme v DBStatRecipe (záznamy o skutečném míchání) podle PK.
+             Pokud najdeme → vrátíme recept + konkrétní míchání (stat_elem != None).
+             Výhoda: zobrazí se skutečné hodnoty (šarže, časy, reálné množství).
+
+          2. Hledáme v DBRecipe (definice receptů) podle PK nebo názvu.
+             Pokud najdeme → vrátíme recept bez konkrétního míchání (stat_elem = None).
+             Zobrazí se referenční složení (plánované množství, ne skutečné).
+
+        Proč dvě tabulky?
+          - DBRecipe = šablona receptu (jak se má namíchat)
+          - DBStatRecipe = záznam o skutečném míchání (kdy, kolik, jaké šarže byly použity)
+          Jeden recept může být namíchán mnohokrát → mnoho DBStatRecipe pro jeden DBRecipe.
         """
         # Nejdřív zkusit najít DBStatRecipe podle PK (naskenované číslo za #)
-        code_stripped = code.lstrip('0') or '0'
+        # Čárový kód může mít vedoucí nuly (např. "00012979"), ale PK v XML je "12979"
+        code_stripped = code.lstrip('0') or '0'  # odstranit vedoucí nuly pro porovnání
         for stat in self.db['root'].iter('DBStatRecipe'):
             stat_pk = stat.get('PK', '')
+            # Porovnat jak s původním kódem (s nulami), tak bez vedoucích nul
             if stat_pk == code or stat_pk == code_stripped:
+                # Najít odkaz na recept (DBRecipe), ke kterému toto míchání patří
                 recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
                 if recipe_ref is not None:
                     recipe_pk = recipe_ref.get('PK')
                     for recipe in self.db['root'].iter('DBRecipe'):
                         if recipe.get('PK') == recipe_pk:
-                            return [(recipe, stat)]
+                            return [(recipe, stat)]  # vrátit recept + konkrétní míchání
 
         # Standardní hledání v DBRecipe podle PK nebo názvu
+        # Shoda nastane pokud: kód == PK, nebo kód == název (bez ohledu na velikost písmen),
+        # nebo kód je obsažen v názvu (částečná shoda)
         candidates = []
         for elem in self.db['root'].iter('DBRecipe'):
             pk = elem.get('PK', '')
             name_elem = elem.find('.//Name[@CLASS="String"]')
             name = name_elem.get('VAL', '') if name_elem is not None else ''
             if code == pk or code.lower() == name.lower() or code in name:
+                # Načíst datum vytvoření receptu pro pozdější řazení
                 date_elem = elem.find('.//DazeitC[@CLASS="DBDate"]')
                 recipe_date = None
                 if date_elem is not None:
-                    timestamp = date_elem.get('TIME')
+                    timestamp = date_elem.get('TIME')  # Unix timestamp v milisekundách
                     if timestamp:
                         try:
+                            # Převést milisekundy na datetime objekt
                             recipe_date = datetime.fromtimestamp(int(timestamp) / 1000.0)
                         except:
                             pass
                 candidates.append((elem, name, recipe_date))
 
+        # Pokud existuje přesná shoda PK, vrátit jen tu (ignorovat shody podle názvu)
         exact_pk = [c for c in candidates if c[0].get('PK', '') == code]
         if exact_pk:
-            return [(exact_pk[0][0], None)]
+            return [(exact_pk[0][0], None)]  # stat_elem = None → statický recept
 
+        # Seskupit kandidáty podle názvu — stejný recept může existovat ve více verzích
+        # (různá data vytvoření = různé verze stejného receptu)
         from collections import defaultdict
         by_name = defaultdict(list)
         for elem, name, date in candidates:
             by_name[name].append((elem, date))
 
+        # Pro každý název vrátit jen nejnovější verzi (seřadit podle data sestupně)
         results = []
         for name, versions in by_name.items():
+            # Seřadit od nejnovějšího; datetime.min jako fallback pro záznamy bez data
             versions.sort(key=lambda x: x[1] if x[1] else datetime.min, reverse=True)
-            results.append((versions[0][0], None))
+            results.append((versions[0][0], None))  # vzít nejnovější verzi, stat_elem = None
 
         return results
 
@@ -738,69 +810,98 @@ class ColorDatabaseGUI:
              -šarže:           XXXXXX
              -skutečná hmotnost: XXXX g
           2. ...
+
+        Parametry:
+          recipe_elem — XML element DBRecipe (šablona receptu, vždy přítomen)
+          stat_elem   — XML element DBStatRecipe (záznam o konkrétním míchání), nebo None
+
+        Rozdíl mezi stat_elem a None:
+          stat_elem != None → zobrazujeme SKUTEČNÉ míchání:
+            - data pochází z DBStatLine (co stroj skutečně nadávkoval)
+            - zobrazí se: čas nadávkování, skutečná hmotnost, šarže z toho míchání
+            - záhlaví obsahuje číslo míchání: "RECEPT: 286  [míchání #12979]"
+
+          stat_elem == None → zobrazujeme STATICKÝ RECEPT (šablonu):
+            - data pochází z DBLine (referenční složení receptu)
+            - zobrazí se: referenční hmotnost, ventil, šarže z aktuálního nastavení barvy
+            - záhlaví neobsahuje číslo míchání: "RECEPT: 286"
         """
-        pk = recipe_elem.get('PK', 'N/A')
+        pk = recipe_elem.get('PK', 'N/A')                          # PK receptu
         name_elem = recipe_elem.find('.//Name[@CLASS="String"]')
         name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
         amount_elem = recipe_elem.find('.//BezugsMenge[@CLASS="Double"]')
-        amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
-        recipe_pk = recipe_elem.get('PK')
+        amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'  # referenční množství v gramech
+        recipe_pk = recipe_elem.get('PK')  # PK pro vyhledání složek v lookup tabulce
 
-        # Záhlaví
+        # Záhlaví — liší se podle toho, zda zobrazujeme konkrétní míchání nebo statický recept
         if stat_elem is not None:
+            # Zobrazujeme konkrétní míchání → datum z DBStatRecipe (MixDate = kdy bylo namícháno)
             stat_pk = stat_elem.get('PK', 'N/A')
             mix_date_elem = stat_elem.find('.//MixDate[@CLASS="DBDate"]')
             date_time = 'N/A'
             if mix_date_elem is not None:
-                ts = mix_date_elem.get('TIME')
+                ts = mix_date_elem.get('TIME')  # Unix timestamp v milisekundách
                 if ts:
                     try:
                         date_time = datetime.fromtimestamp(int(ts) / 1000.0).strftime('%d.%m.%Y %H:%M:%S')
                     except:
                         pass
+            # Záhlaví s číslem míchání — uživatel vidí, které konkrétní míchání prohlíží
             self.result_text.insert(tk.END, f"RECEPT: {name}  [míchání #{stat_pk}]\n", "header")
         else:
+            # Zobrazujeme statický recept → datum z DBRecipe (DazeitC = kdy byl recept vytvořen)
             date_elem = recipe_elem.find('.//DazeitC[@CLASS="DBDate"]')
             date_time = 'N/A'
             if date_elem is not None:
-                ts = date_elem.get('TIME')
+                ts = date_elem.get('TIME')  # Unix timestamp v milisekundách
                 if ts:
                     try:
                         date_time = datetime.fromtimestamp(int(ts) / 1000.0).strftime('%d.%m.%Y %H:%M:%S')
                     except:
                         pass
+            # Záhlaví bez čísla míchání — zobrazujeme jen šablonu receptu
             self.result_text.insert(tk.END, f"RECEPT: {name}\n", "header")
 
         self.result_text.insert(tk.END, f"{'─' * 60}\n")
         self.result_text.insert(tk.END, f"PK: {pk}   |   Ref. množství: {amount} g   |   Datum: {date_time}\n")
         self.result_text.insert(tk.END, f"{'─' * 60}\n\n")
 
-        labels_data = []
-        values_data = []
-        colors_data = []
-        total = 0
+        # Seznamy pro koláčový graf (naplní se při procházení složek)
+        labels_data = []   # názvy složek (popisky výsečí)
+        values_data = []   # množství v gramech (velikosti výsečí)
+        colors_data = []   # barvy výsečí (přiřazené podle názvu složky)
+        total = 0          # celkové množství pro výpočet procent v grafu
 
         if stat_elem is not None:
-            # Složení z DBStatLine — skutečné míchání
+            # ── VĚTEV A: Skutečné míchání ──────────────────────────────────────────
+            # Data pochází z DBStatLine — záznamy o skutečném nadávkování stroje.
+            # Každý DBStatLine odpovídá jedné složce jednoho konkrétního míchání.
+            # Filtrujeme jen řádky patřící k tomuto míchání (podle PK DBStatRecipe).
             stat_pk = stat_elem.get('PK')
+            # Walrus operátor (:=) přiřadí hodnotu a zároveň ji použije v podmínce
             lines = [l for l in self.db['root'].iter('DBStatLine')
                      if (sr := l.find('.//StatRecipe[@CLASS="DBRef"]')) is not None
                      and sr.get('PK') == stat_pk]
 
             for i, line in enumerate(lines, 1):
+                # Název barvy (BCName = BaseColor Name, uložen přímo v DBStatLine)
                 bc_name_elem = line.find('.//BCName[@CLASS="String"]')
                 bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
 
+                # Číslo ventilu, ze kterého byla barva nadávkována
                 valve_elem = line.find('.//ValveNr[@CLASS="Integer"]')
                 bc_valve = valve_elem.get('VAL', '—') if valve_elem is not None else '—'
 
+                # Skutečná hmotnost nadávkovaná strojem (v gramech × 1000 = v miligramech? nebo g?)
                 real_val_elem = line.find('.//Real_Value[@CLASS="Integer"]')
                 value = int(real_val_elem.get('VAL', '0')) if real_val_elem is not None else 0
-                total += value
+                total += value  # přičíst k celkovému množství
 
+                # Šarže barvy použité při tomto konkrétním míchání
                 charge_elem = line.find('.//Charge[@CLASS="String"]')
                 bc_charge = charge_elem.get('VAL', '—') if charge_elem is not None else '—'
 
+                # Čas, kdy byla tato složka nadávkována (může se lišit od času míchání)
                 mix_date_elem = line.find('.//MixDate[@CLASS="DBDate"]')
                 mix_time = '—'
                 if mix_date_elem is not None:
@@ -811,10 +912,12 @@ class ColorDatabaseGUI:
                         except:
                             pass
 
+                # Přidat data pro koláčový graf
                 labels_data.append(bc_name)
                 values_data.append(value)
                 colors_data.append(self.get_color_for_name(bc_name))
 
+                # Vypsat složku do textové oblasti
                 self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
                 self.result_text.insert(tk.END, f"   -čas nadávkování:    {mix_time}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
@@ -822,34 +925,45 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 1000:.3f} kg\n\n", "ing_detail")
 
         else:
-            # Složení ze statického receptu (DBLine) — použij lookup tabulku
-            lines = self._lines_by_recipe.get(recipe_pk, [])
+            # ── VĚTEV B: Statický recept (šablona) ────────────────────────────────
+            # Data pochází z DBLine — referenční složení receptu.
+            # Používáme lookup tabulku _lines_by_recipe pro O(1) přístup
+            # (místo iterace přes všechny DBLine v celém XML).
+            lines = self._lines_by_recipe.get(recipe_pk, [])  # [] = prázdný seznam pokud recept nemá složky
 
             for i, line in enumerate(lines, 1):
+                # Referenční množství složky (Value = plánované množství v receptu)
                 value_elem = line.find('.//Value[@CLASS="Integer"]')
                 value = int(value_elem.get('VAL', '0')) if value_elem is not None else 0
-                total += value
+                total += value  # přičíst k celkovému množství
 
+                # Odkaz na základní barvu (DBBaseColor) — obsahuje název, ventil, šarži
                 basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
                 if basecolor_ref is None:
-                    continue
+                    continue  # řádek bez barvy — přeskočit
+                # O(1) lookup — okamžitý přístup přes předpočítaný slovník
                 bc = self.find_basecolor(basecolor_ref.get('PK'))
                 if bc is None:
-                    continue
+                    continue  # barva s tímto PK neexistuje — přeskočit
 
+                # Název barvy z DBBaseColor
                 bc_name_elem = bc.find('.//Name[@CLASS="String"]')
                 bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
 
+                # Číslo ventilu přiřazeného k této barvě
                 bc_valve_elem = bc.find('.//ValveNr[@CLASS="Integer"]')
                 bc_valve = bc_valve_elem.get('VAL', '—') if bc_valve_elem is not None else '—'
 
+                # Aktuální šarže barvy (nastavená v DBBaseColor, ne z konkrétního míchání)
                 bc_charge_elem = bc.find('.//Charge[@CLASS="String"]')
                 bc_charge = bc_charge_elem.get('VAL', '—') if bc_charge_elem is not None else '—'
 
+                # Přidat data pro koláčový graf
                 labels_data.append(bc_name)
                 values_data.append(value)
                 colors_data.append(self.get_color_for_name(bc_name))
 
+                # Vypsat složku do textové oblasti (bez času nadávkování — statický recept ho nemá)
                 self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
@@ -859,12 +973,13 @@ class ColorDatabaseGUI:
             self.result_text.insert(tk.END, f"{'─' * 60}\n")
             self.result_text.insert(tk.END, f"CELKEM: {total / 1000:.3f} kg\n\n", "total")
 
-        self.display_recipe_history(recipe_pk, name)
+        self.display_recipe_history(recipe_pk, name)  # zobrazit historii míchání pod složením
 
         if MATPLOTLIB_AVAILABLE and values_data:
-            self.draw_pie_chart(labels_data, values_data, colors_data, name)
+            self.draw_pie_chart(labels_data, values_data, colors_data, name)  # vykreslit koláčový graf
 
-        # Tagy
+        # Definice textových tagů — nastavují font a barvu pro různé části výstupu
+        # Tagy se musí nastavit po vložení textu (nebo kdykoli, tkinter je aplikuje zpětně)
         self.result_text.tag_config("header",     font=(self.font_mono[0], 15, "bold"), foreground="#1a5276")
         self.result_text.tag_config("ing_name",   font=(self.font_mono[0], 12, "bold"))
         self.result_text.tag_config("ing_detail", font=self.font_mono)
@@ -947,42 +1062,61 @@ class ColorDatabaseGUI:
 
         Jednoduché mapování klíčových slov (anglicky i česky) na hex barvy.
         Pokud název neodpovídá žádnému klíčovému slovu, vrátí šedou.
+
+        Klíčová slova jsou záměrně zkrácená (např. 'žlut' místo 'žlutá'),
+        aby zachytila různé tvary slova (žlutá, žlutý, žluté...).
+        Německá slova (rot, schwarz) jsou přidána, protože stroj může
+        mít barvy pojmenované německy.
         """
-        name_lower = name.lower()  # převést na malá písmena pro porovnání
+        name_lower = name.lower()  # převést na malá písmena pro porovnání bez ohledu na velikost
+        # Slovník: klíčové slovo → hex barva pro koláčový graf
         color_map = {
-            'yellow': '#FFD700', 'žlut': '#FFD700',
-            'red': '#DC143C', 'červen': '#DC143C', 'rot': '#DC143C',
-            'rubine': '#E30B5C', 'magenta': '#FF00FF',
-            'blue': '#1E90FF', 'modr': '#1E90FF',
-            'green': '#32CD32', 'zelen': '#32CD32',
-            'black': '#2F4F4F', 'čern': '#2F4F4F', 'schwarz': '#2F4F4F',
-            'orange': '#FF8C00', 'oranž': '#FF8C00',
-            'violet': '#8B00FF', 'fialov': '#8B00FF',
-            'pink': '#FF69B4', 'růžov': '#FF69B4',
-            'white': '#F5F5F5', 'bíl': '#F5F5F5',
-            'transparent': '#E8E8E8',
+            'yellow': '#FFD700', 'žlut': '#FFD700',                    # žlutá
+            'red': '#DC143C', 'červen': '#DC143C', 'rot': '#DC143C',   # červená (+ německy)
+            'rubine': '#E30B5C', 'magenta': '#FF00FF',                  # purpurová/magenta
+            'blue': '#1E90FF', 'modr': '#1E90FF',                       # modrá
+            'green': '#32CD32', 'zelen': '#32CD32',                     # zelená
+            'black': '#2F4F4F', 'čern': '#2F4F4F', 'schwarz': '#2F4F4F',  # černá (+ německy)
+            'orange': '#FF8C00', 'oranž': '#FF8C00',                    # oranžová
+            'violet': '#8B00FF', 'fialov': '#8B00FF',                   # fialová
+            'pink': '#FF69B4', 'růžov': '#FF69B4',                      # růžová
+            'white': '#F5F5F5', 'bíl': '#F5F5F5',                       # bílá (světle šedá v grafu)
+            'transparent': '#E8E8E8',                                    # transparentní (velmi světlá)
         }
         for key, color in color_map.items():
             if key in name_lower:
-                return color
-        return '#A9A9A9'
+                return color  # vrátit barvu pro první nalezené klíčové slovo
+        return '#A9A9A9'  # výchozí šedá pro neznámé barvy
 
     def draw_pie_chart(self, labels, values, colors, title):
         """
-        Vykreslit koláčový graf složení receptu.
+        Vykreslit koláčový graf složení receptu do pravého panelu záložky Vyhledávání.
 
-        Popisky obsahují název složky a procento. Uvnitř výseče je
-        zobrazeno skutečné množství v gramech (přepočítáno z procent).
+        Parametry:
+          labels — seznam názvů složek (popisky výsečí)
+          values — seznam množství v gramech (určuje velikost výsečí)
+          colors — seznam hex barev výsečí (přiřazené podle názvu složky)
+          title  — název receptu (zobrazí se jako nadpis grafu)
+
+        Popisky výsečí obsahují název složky a procento.
+        Uvnitř každé výseče je zobrazeno skutečné množství v gramech
+        (přepočítáno z procent zpět na absolutní hodnotu).
         """
-        self.figure.clear()  # vymazat předchozí graf
-        ax = self.figure.add_subplot(111)
-        total = sum(values)
+        self.figure.clear()  # vymazat předchozí graf (jinak by se grafy překrývaly)
+        ax = self.figure.add_subplot(111)  # 111 = 1 řádek, 1 sloupec, 1. graf
+        total = sum(values)  # celkové množství pro výpočet procent
 
-        # Popisky s názvem a procentem
+        # Popisky výsečí: "Název barvy\nXX.X%" — dvouřádkové pro přehlednost
         labels_with_pct = [f'{label}\n{(v/total)*100:.1f}%' for label, v in zip(labels, values)]
 
         # Vlastní funkce pro zobrazení gramů uvnitř výseče
+        # autopct normálně zobrazuje procenta, ale my chceme gramy
         def make_autopct(vals):
+            def autopct(pct):
+                # Zpětný výpočet: procenta → gramy (pct je číslo 0-100)
+                absolute = int(round(pct * total / 100.0))
+                return f'{absolute} g'
+            return autopct
             def autopct(pct):
                 absolute = int(round(pct * total / 100.0))
                 return f'{absolute} g'
@@ -1080,26 +1214,35 @@ class ColorDatabaseGUI:
         """
         Pokročilé filtrování — kombinuje datum+čas, ventil a barvu.
         Výsledky zobrazí v tabulce, dvojklik otevře přehledný detail.
+
         Rychlost zajišťují předpočítané lookup tabulky — žádné O(n²).
+        Bez lookup tabulek by filtrování pro každý recept muselo projít
+        všechny DBLine a DBBaseColor v celém XML → kvadratická složitost.
+        S lookup tabulkami je přístup k ventilům a barvám O(1) → lineární složitost.
+
+        Filtry jsou volitelné — prázdné pole = filtr se neaplikuje.
+        Všechny zadané filtry musí platit zároveň (logické AND).
         """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
 
+        # Načíst hodnoty ze vstupních polí (strip() odstraní mezery na začátku/konci)
         start_date_str = self.adv_start_date.get().strip()
         end_date_str   = self.adv_end_date.get().strip()
         start_time_str = self.adv_start_time.get().strip()
         end_time_str   = self.adv_end_time.get().strip()
         valve_str      = self.adv_valve.get().strip()
-        color_str      = self.adv_color.get().strip().lower()
+        color_str      = self.adv_color.get().strip().lower()  # lower() pro porovnání bez ohledu na velikost písmen
 
         try:
             start_datetime = None
             end_datetime   = None
             if start_date_str:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-                start_time = datetime.strptime(start_time_str, '%H:%M').time()
-                start_datetime = datetime.combine(start_date.date(), start_time)
+                # Zkombinovat datum a čas do jednoho datetime objektu pro přesné porovnání
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')  # parsovat datum
+                start_time = datetime.strptime(start_time_str, '%H:%M').time()  # parsovat čas
+                start_datetime = datetime.combine(start_date.date(), start_time)  # spojit dohromady
             if end_date_str:
                 end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
                 end_time = datetime.strptime(end_time_str, '%H:%M').time()
@@ -1108,59 +1251,68 @@ class ColorDatabaseGUI:
             messagebox.showerror("Chyba", f"Neplatný formát data nebo času!\n{e}")
             return
 
+        # Vymazat předchozí výsledky z tabulky
         for item in self.adv_tree.get_children():
             self.adv_tree.delete(item)
 
-        results = []
+        results = []  # seznam (recipe_elem, recipe_datetime) pro nalezené recepty
 
         for recipe in self.db['root'].iter('DBRecipe'):
+            # Načíst datum vytvoření receptu (DazeitC = Datum Zeit Created)
             date_elem = recipe.find('.//DazeitC[@CLASS="DBDate"]')
             if date_elem is None:
-                continue
-            timestamp = date_elem.get('TIME')
+                continue  # recept bez data — přeskočit
+            timestamp = date_elem.get('TIME')  # Unix timestamp v milisekundách
             if not timestamp:
                 continue
             try:
                 recipe_datetime = datetime.fromtimestamp(int(timestamp) / 1000.0)
             except:
-                continue
+                continue  # neplatný timestamp — přeskočit
 
+            # Filtr datumu a času — přeskočit recepty mimo zadaný rozsah
             if start_datetime and recipe_datetime < start_datetime:
                 continue
             if end_datetime and recipe_datetime > end_datetime:
                 continue
 
-            recipe_pk = recipe.get('PK')
+            recipe_pk = recipe.get('PK')  # PK receptu pro lookup tabulky
 
-            # Filtr ventilu — O(1) lookup
+            # Filtr ventilu — O(1) lookup místo iterace přes všechny DBLine
+            # self._recipe_valves[recipe_pk] = seznam ventilů předpočítaný při načtení souboru
             if valve_str:
                 if valve_str not in self._recipe_valves.get(recipe_pk, []):
-                    continue
+                    continue  # recept nepoužívá hledaný ventil — přeskočit
 
-            # Filtr barvy — O(1) lookup
+            # Filtr barvy — O(1) lookup, porovnání bez ohledu na velikost písmen
+            # any() vrátí True pokud alespoň jedna barva obsahuje hledaný řetězec
             if color_str:
                 colors = self._recipe_colors.get(recipe_pk, [])
                 if not any(color_str in c.lower() for c in colors):
-                    continue
+                    continue  # recept neobsahuje hledanou barvu — přeskočit
 
-            results.append((recipe, recipe_datetime))
+            results.append((recipe, recipe_datetime))  # recept prošel všemi filtry
 
+        # Seřadit výsledky od nejnovějšího (reverse=True = sestupně)
         results.sort(key=lambda x: x[1], reverse=True)
 
+        # Naplnit tabulku výsledků
         for recipe, recipe_datetime in results:
             pk        = recipe.get('PK', 'N/A')
             name_elem = recipe.find('.//Name[@CLASS="String"]')
             name      = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
             amount_elem = recipe.find('.//BezugsMenge[@CLASS="Double"]')
             amount    = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
-            date_str  = recipe_datetime.strftime('%d.%m.%Y')
-            time_str  = recipe_datetime.strftime('%H:%M:%S')
+            date_str  = recipe_datetime.strftime('%d.%m.%Y')   # datum ve formátu DD.MM.RRRR
+            time_str  = recipe_datetime.strftime('%H:%M:%S')   # čas ve formátu HH:MM:SS
+            # Načíst ventily a šarže z lookup tabulek (O(1) přístup)
             valves    = self._recipe_valves.get(pk, [])
             charges   = self._recipe_charges.get(pk, [])
             self.adv_tree.insert('', tk.END,
                 values=(pk, name, amount, date_str, time_str,
-                        ', '.join(sorted(valves)), ', '.join(charges)),
-                tags=(pk,))
+                        ', '.join(sorted(valves)),  # ventily seřazené pro přehlednost
+                        ', '.join(charges)),
+                tags=(pk,))  # tag = PK receptu, použije se při dvojkliku
 
         self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů")
 
@@ -1360,37 +1512,53 @@ class ColorDatabaseGUI:
         return rows
 
     def _export_pdf(self, content, filepath):
-        """Exportovat obsah do PDF pomocí reportlab s podporou české diakritiky."""
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
+        """
+        Exportovat obsah do PDF pomocí reportlab s podporou české diakritiky.
 
-        # Zaregistrovat DejaVuSans — podporuje českou diakritiku.
-        # Font je přibalen ve složce fonts/ vedle gui.py (funguje i v EXE).
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        font_regular = os.path.join(base_dir, 'fonts', 'DejaVuSans.ttf')
-        font_bold    = os.path.join(base_dir, 'fonts', 'DejaVuSans-Bold.ttf')
+        Proč registrujeme font DejaVu?
+          reportlab standardně obsahuje jen základní PDF fonty (Helvetica, Times, Courier).
+          Tyto fonty jsou zabudované v PDF standardu, ale nepodporují českou diakritiku
+          (znaky jako á, é, í, ó, ú, ž, š, č, ř, ď, ť, ň).
 
-        # Fallback: pokud fonts/ chybí, zkusit systémové umístění
+          DejaVuSans je open-source font s plnou podporou Unicode (včetně češtiny).
+          Aby ho reportlab mohl použít, musíme ho nejprve zaregistrovat pomocí
+          pdfmetrics.registerFont() — tím ho přidáme do interního slovníku fontů reportlab.
+          Poté ho můžeme používat v ParagraphStyle jako fontName='DejaVu'.
+
+          Font je přibalen ve složce fonts/ vedle gui.py, takže funguje i v EXE balíčku
+          (PyInstaller zabalí složku fonts/ do spustitelného souboru).
+        """
+        from reportlab.pdfbase import pdfmetrics   # registrace vlastních fontů
+        from reportlab.pdfbase.ttfonts import TTFont  # načtení TrueType fontu ze souboru
+
+        # Cesta k fontům — hledáme ve složce fonts/ vedle tohoto skriptu
+        base_dir = os.path.dirname(os.path.abspath(__file__))  # složka, kde leží gui.py
+        font_regular = os.path.join(base_dir, 'fonts', 'DejaVuSans.ttf')       # normální řez
+        font_bold    = os.path.join(base_dir, 'fonts', 'DejaVuSans-Bold.ttf')  # tučný řez
+
+        # Fallback: pokud fonts/ chybí (např. při vývoji bez EXE), zkusit systémové umístění
         if not os.path.exists(font_regular):
             for candidate in [
-                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-                '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-                'C:/Windows/Fonts/arial.ttf',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',  # Ubuntu/Debian
+                '/usr/share/fonts/dejavu/DejaVuSans.ttf',           # Fedora/RHEL
+                'C:/Windows/Fonts/arial.ttf',                        # Windows (Arial jako náhrada)
             ]:
                 if os.path.exists(candidate):
                     font_regular = candidate
                     font_bold = candidate.replace('DejaVuSans.ttf', 'DejaVuSans-Bold.ttf')
                     if not os.path.exists(font_bold):
-                        font_bold = candidate
+                        font_bold = candidate  # pokud tučný neexistuje, použít normální
                     break
 
         try:
+            # Zaregistrovat font pod názvem 'DejaVu' — tento název pak používáme v stylech
             pdfmetrics.registerFont(TTFont('DejaVu',     font_regular))
             pdfmetrics.registerFont(TTFont('DejaVu-Bold', font_bold))
-            fn       = 'DejaVu'
-            fn_bold  = 'DejaVu-Bold'
+            fn       = 'DejaVu'       # název pro normální text
+            fn_bold  = 'DejaVu-Bold'  # název pro tučný text
         except Exception:
-            # Pokud font nelze načíst, použij Helvetica (bez diakritiky)
+            # Pokud font nelze načíst (soubor poškozen, chybí práva...), použij Helvetica
+            # Helvetica je zabudovaná v PDF, ale nepodporuje diakritiku → znaky budou chybět
             fn      = 'Helvetica'
             fn_bold = 'Helvetica-Bold'
 
