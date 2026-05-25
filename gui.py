@@ -567,35 +567,46 @@ class ColorDatabaseGUI:
         """
         Normalizovat naskenovaný čárový kód na čistý kód receptu.
 
-        Skenery někdy přidávají přípony — např. "315.001" nebo "315#ABC".
-        Bereme jen část před první tečkou nebo mřížkou.
+        Formát skeneru: "286.........#00012979"
+          - část za '#' = PK míchání (DBStatRecipe) → "00012979"
+        Pokud '#' není, bereme část před první tečkou.
         """
-        if '.' in barcode:
-            code = barcode.split('.')[0].strip()
+        if '#' in barcode:
+            code = barcode.split('#', 1)[1].strip()
             if code:
                 return code
-        if '#' in barcode:
-            code = barcode.split('#')[0].strip()
-            code = code.rstrip('.')
+        if '.' in barcode:
+            code = barcode.split('.')[0].strip()
             if code:
                 return code
         return barcode
 
     def search_by_code(self, code):
         """
-        Vyhledat recept podle kódu (PK nebo název).
+        Vyhledat recept podle kódu (PK nebo název DBRecipe, nebo PK DBStatRecipe).
 
-        Pokud existuje více receptů se stejným názvem (přepracované verze),
-        vrátí pouze nejnovější podle data vytvoření — každý název = jeden výsledek.
-        Přesná shoda PK má přednost a vrátí se okamžitě.
+        Vrací seznam tuplů (recipe_elem, stat_elem_nebo_None).
+        Pokud kód odpovídá PK záznamu DBStatRecipe, vrátí recept + konkrétní míchání.
         """
+        # Nejdřív zkusit najít DBStatRecipe podle PK (naskenované číslo za #)
+        code_stripped = code.lstrip('0') or '0'
+        for stat in self.db['root'].iter('DBStatRecipe'):
+            stat_pk = stat.get('PK', '')
+            if stat_pk == code or stat_pk == code_stripped:
+                recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
+                if recipe_ref is not None:
+                    recipe_pk = recipe_ref.get('PK')
+                    for recipe in self.db['root'].iter('DBRecipe'):
+                        if recipe.get('PK') == recipe_pk:
+                            return [(recipe, stat)]
+
+        # Standardní hledání v DBRecipe podle PK nebo názvu
         candidates = []
         for elem in self.db['root'].iter('DBRecipe'):
             pk = elem.get('PK', '')
             name_elem = elem.find('.//Name[@CLASS="String"]')
             name = name_elem.get('VAL', '') if name_elem is not None else ''
             if code == pk or code.lower() == name.lower() or code in name:
-                # Získat datum pro řazení
                 date_elem = elem.find('.//DazeitC[@CLASS="DBDate"]')
                 recipe_date = None
                 if date_elem is not None:
@@ -607,12 +618,10 @@ class ColorDatabaseGUI:
                             pass
                 candidates.append((elem, name, recipe_date))
 
-        # Pokud hledáme podle PK, vrátíme přesnou shodu přímo
         exact_pk = [c for c in candidates if c[0].get('PK', '') == code]
         if exact_pk:
-            return [exact_pk[0][0]]
+            return [(exact_pk[0][0], None)]
 
-        # Jinak seskupit podle názvu a vzít nejnovější verzi každého
         from collections import defaultdict
         by_name = defaultdict(list)
         for elem, name, date in candidates:
@@ -620,15 +629,14 @@ class ColorDatabaseGUI:
 
         results = []
         for name, versions in by_name.items():
-            # Seřadit podle data sestupně, vzít nejnovější
             versions.sort(key=lambda x: x[1] if x[1] else datetime.min, reverse=True)
-            results.append(versions[0][0])
+            results.append((versions[0][0], None))
 
         return results
 
     def display_results(self, results, search_code):
         """Zobrazit seznam nalezených receptů v textové oblasti."""
-        self.result_text.delete(1.0, tk.END)  # vymazat předchozí výsledky
+        self.result_text.delete(1.0, tk.END)
         if not results:
             self.result_text.insert(tk.END, f"✗ Žádné výsledky pro kód: {search_code}\n\n", "error")
             self.result_text.tag_config("error", foreground="red")
@@ -638,20 +646,25 @@ class ColorDatabaseGUI:
                 self.canvas.draw()
             return
         self.status_bar.config(text=f"✓ Nalezeno {len(results)} výsledků")
-        for i, recipe in enumerate(results, 1):
+        for i, item in enumerate(results, 1):
             if i > 1:
                 self.result_text.insert(tk.END, "\n" + "=" * 80 + "\n\n")
-            self.display_recipe(recipe)
+            # item je tuple (recipe_elem, stat_elem_nebo_None)
+            if isinstance(item, tuple):
+                recipe_elem, stat_elem = item
+            else:
+                recipe_elem, stat_elem = item, None
+            self.display_recipe(recipe_elem, stat_elem)
 
-    def display_recipe(self, recipe_elem):
+    def display_recipe(self, recipe_elem, stat_elem=None):
         """
         Vypsat plný detail jednoho receptu do textové oblasti.
 
-        Zobrazí: název, PK, referenční množství, datum vytvoření,
-        složení (barva, ventil, množství v g, šarže) a historii míchání.
-        Zároveň předá data do draw_pie_chart() pro vykreslení grafu.
+        Pokud je předán stat_elem (DBStatRecipe), zobrazí skutečná data
+        z konkrétního míchání (DBStatLine) — aktuální šarže, skutečná množství,
+        datum míchání. Jinak zobrazí statický recept z DBLine.
         """
-        pk = recipe_elem.get('PK', 'N/A')  # primární klíč receptu v databázi
+        pk = recipe_elem.get('PK', 'N/A')
 
         name_elem = recipe_elem.find('.//Name[@CLASS="String"]')
         name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
@@ -659,77 +672,147 @@ class ColorDatabaseGUI:
         amount_elem = recipe_elem.find('.//BezugsMenge[@CLASS="Double"]')
         amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
 
-        date_elem = recipe_elem.find('.//DazeitC[@CLASS="DBDate"]')
-        date_time = 'N/A'
-        if date_elem is not None:
-            timestamp = date_elem.get('TIME')
-            if timestamp:
-                try:
-                    dt = datetime.fromtimestamp(int(timestamp) / 1000.0)
-                    date_time = dt.strftime('%d.%m.%Y %H:%M:%S')
-                except:
-                    date_time = timestamp
+        # Datum — z míchání (DBStatRecipe) nebo z vytvoření receptu
+        if stat_elem is not None:
+            mix_date_elem = stat_elem.find('.//MixDate[@CLASS="DBDate"]')
+            date_time = 'N/A'
+            if mix_date_elem is not None:
+                timestamp = mix_date_elem.get('TIME')
+                if timestamp:
+                    try:
+                        dt = datetime.fromtimestamp(int(timestamp) / 1000.0)
+                        date_time = dt.strftime('%d.%m.%Y %H:%M:%S')
+                    except:
+                        date_time = timestamp
+            stat_pk = stat_elem.get('PK', 'N/A')
+            self.result_text.insert(tk.END, f"RECEPT: {name}  [míchání #{stat_pk}]\n", "header")
+        else:
+            date_elem = recipe_elem.find('.//DazeitC[@CLASS="DBDate"]')
+            date_time = 'N/A'
+            if date_elem is not None:
+                timestamp = date_elem.get('TIME')
+                if timestamp:
+                    try:
+                        dt = datetime.fromtimestamp(int(timestamp) / 1000.0)
+                        date_time = dt.strftime('%d.%m.%Y %H:%M:%S')
+                    except:
+                        date_time = timestamp
+            self.result_text.insert(tk.END, f"RECEPT: {name}\n", "header")
 
-        self.result_text.insert(tk.END, f"RECEPT: {name}\n", "header")
         self.result_text.insert(tk.END, f"{'─' * 80}\n")
-        self.result_text.insert(tk.END, f"PK:       {pk}\n")
-        self.result_text.insert(tk.END, f"Množství: {amount} g\n")
-        self.result_text.insert(tk.END, f"Datum:    {date_time}\n\n")
+        self.result_text.insert(tk.END, f"PK:              {pk}\n")
+        self.result_text.insert(tk.END, f"Ref. množství:   {amount} g\n")
+        self.result_text.insert(tk.END, f"Datum míchání:   {date_time}\n\n")
 
         recipe_pk = recipe_elem.get('PK')
-        lines = []
-        for line in self.db['root'].iter('DBLine'):
-            recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
-            if recipe_ref is not None and recipe_ref.get('PK') == recipe_pk:
-                lines.append(line)
 
-        if lines:
-            self.result_text.insert(tk.END, f"SLOŽENÍ ({len(lines)} složek):\n", "subheader")
-            self.result_text.insert(tk.END, f"{'─' * 80}\n")
+        if stat_elem is not None:
+            # Zobrazit skutečné složení z DBStatLine
+            stat_pk = stat_elem.get('PK')
+            lines = []
+            for line in self.db['root'].iter('DBStatLine'):
+                sr = line.find('.//StatRecipe[@CLASS="DBRef"]')
+                if sr is not None and sr.get('PK') == stat_pk:
+                    lines.append(line)
 
-            labels_data = []
-            values_data = []
-            colors_data = []
-            total = 0
+            if lines:
+                self.result_text.insert(tk.END, f"SKUTEČNÉ SLOŽENÍ ({len(lines)} složek):\n", "subheader")
+                self.result_text.insert(tk.END, f"{'─' * 80}\n")
 
-            for line in lines:
-                value_elem = line.find('.//Value[@CLASS="Integer"]')
-                value = int(value_elem.get('VAL', '0')) if value_elem is not None else 0
-                total += value
+                labels_data = []
+                values_data = []
+                colors_data = []
+                total = 0
 
-                basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
-                if basecolor_ref is not None:
-                    bc_pk = basecolor_ref.get('PK')
-                    basecolor = self.find_basecolor(bc_pk)
-                    if basecolor:
-                        bc_name_elem = basecolor.find('.//Name[@CLASS="String"]')
-                        bc_name = bc_name_elem.get('VAL', f'Barva PK={bc_pk}') if bc_name_elem is not None else f'Barva PK={bc_pk}'
+                for line in lines:
+                    bc_name_elem = line.find('.//BCName[@CLASS="String"]')
+                    bc_name = bc_name_elem.get('VAL', '?') if bc_name_elem is not None else '?'
 
-                        bc_valve_elem = basecolor.find('.//ValveNr[@CLASS="Integer"]')
-                        bc_valve = bc_valve_elem.get('VAL', '') if bc_valve_elem is not None else ''
+                    valve_elem = line.find('.//ValveNr[@CLASS="Integer"]')
+                    bc_valve = valve_elem.get('VAL', '') if valve_elem is not None else ''
 
-                        bc_charge_elem = basecolor.find('.//Charge[@CLASS="String"]')
-                        bc_charge = bc_charge_elem.get('VAL', '') if bc_charge_elem is not None else ''
+                    real_val_elem = line.find('.//Real_Value[@CLASS="Integer"]')
+                    value = int(real_val_elem.get('VAL', '0')) if real_val_elem is not None else 0
+                    total += value
 
-                        labels_data.append(bc_name)
-                        values_data.append(value)
-                        colors_data.append(self.get_color_for_name(bc_name))
+                    charge_elem = line.find('.//Charge[@CLASS="String"]')
+                    bc_charge = charge_elem.get('VAL', '') if charge_elem is not None else ''
 
-                        charge_info = f"  [Šarže: {bc_charge}]" if bc_charge else ""
-                        if bc_valve:
-                            self.result_text.insert(tk.END,
-                                f"  • {bc_name:<30} (Ventil {bc_valve:>2}):  {value:>6} g{charge_info}\n", "ingredient")
-                        else:
-                            self.result_text.insert(tk.END,
-                                f"  • {bc_name:<30}              {value:>6} g{charge_info}\n", "ingredient")
+                    labels_data.append(bc_name)
+                    values_data.append(value)
+                    colors_data.append(self.get_color_for_name(bc_name))
 
-            self.result_text.insert(tk.END, f"\n{'─' * 80}\n")
-            self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
+                    charge_info = f"  [Šarže: {bc_charge}]" if bc_charge else ""
+                    if bc_valve:
+                        self.result_text.insert(tk.END,
+                            f"  • {bc_name:<30} (Ventil {bc_valve:>2}):  {value:>6} g{charge_info}\n", "ingredient")
+                    else:
+                        self.result_text.insert(tk.END,
+                            f"  • {bc_name:<30}              {value:>6} g{charge_info}\n", "ingredient")
 
-            self.display_recipe_history(recipe_pk, name)
+                self.result_text.insert(tk.END, f"\n{'─' * 80}\n")
+                self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
 
-            if MATPLOTLIB_AVAILABLE and values_data:
-                self.draw_pie_chart(labels_data, values_data, colors_data, name)
+                self.display_recipe_history(recipe_pk, name)
+
+                if MATPLOTLIB_AVAILABLE and values_data:
+                    self.draw_pie_chart(labels_data, values_data, colors_data, name)
+
+        else:
+            # Statický recept z DBLine
+            lines = []
+            for line in self.db['root'].iter('DBLine'):
+                recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
+                if recipe_ref is not None and recipe_ref.get('PK') == recipe_pk:
+                    lines.append(line)
+
+            if lines:
+                self.result_text.insert(tk.END, f"SLOŽENÍ ({len(lines)} složek):\n", "subheader")
+                self.result_text.insert(tk.END, f"{'─' * 80}\n")
+
+                labels_data = []
+                values_data = []
+                colors_data = []
+                total = 0
+
+                for line in lines:
+                    value_elem = line.find('.//Value[@CLASS="Integer"]')
+                    value = int(value_elem.get('VAL', '0')) if value_elem is not None else 0
+                    total += value
+
+                    basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
+                    if basecolor_ref is not None:
+                        bc_pk = basecolor_ref.get('PK')
+                        basecolor = self.find_basecolor(bc_pk)
+                        if basecolor:
+                            bc_name_elem = basecolor.find('.//Name[@CLASS="String"]')
+                            bc_name = bc_name_elem.get('VAL', f'Barva PK={bc_pk}') if bc_name_elem is not None else f'Barva PK={bc_pk}'
+
+                            bc_valve_elem = basecolor.find('.//ValveNr[@CLASS="Integer"]')
+                            bc_valve = bc_valve_elem.get('VAL', '') if bc_valve_elem is not None else ''
+
+                            bc_charge_elem = basecolor.find('.//Charge[@CLASS="String"]')
+                            bc_charge = bc_charge_elem.get('VAL', '') if bc_charge_elem is not None else ''
+
+                            labels_data.append(bc_name)
+                            values_data.append(value)
+                            colors_data.append(self.get_color_for_name(bc_name))
+
+                            charge_info = f"  [Šarže: {bc_charge}]" if bc_charge else ""
+                            if bc_valve:
+                                self.result_text.insert(tk.END,
+                                    f"  • {bc_name:<30} (Ventil {bc_valve:>2}):  {value:>6} g{charge_info}\n", "ingredient")
+                            else:
+                                self.result_text.insert(tk.END,
+                                    f"  • {bc_name:<30}              {value:>6} g{charge_info}\n", "ingredient")
+
+                self.result_text.insert(tk.END, f"\n{'─' * 80}\n")
+                self.result_text.insert(tk.END, f"CELKEM: {total} g\n\n", "total")
+
+                self.display_recipe_history(recipe_pk, name)
+
+                if MATPLOTLIB_AVAILABLE and values_data:
+                    self.draw_pie_chart(labels_data, values_data, colors_data, name)
 
         self.result_text.tag_config("header", font=(self.font_mono[0], 16, "bold"), foreground="blue")
         self.result_text.tag_config("subheader", font=(self.font_mono[0], 13, "bold"))

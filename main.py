@@ -352,28 +352,26 @@ def scanner_mode(db):
 
 
 def process_barcode(barcode):
-    """Zpracovat čárový kód a extrahovat relevantní část."""
-    # Odstranit bílé znaky
+    """Zpracovat čárový kód a extrahovat relevantní část.
+
+    Formát skeneru: "286.........#00012979"
+      - část před '#' (bez teček) = název receptu → "286"
+      - část za '#' = PK míchání (ignorujeme)
+    Pokud '#' není, bereme část před první tečkou.
+    """
     barcode = barcode.strip()
-    
-    # Pokud obsahuje tečky, vzít část před tečkami
+
+    if '#' in barcode:
+        code = barcode.split('#', 1)[0]       # část před '#'
+        code = code.replace('.', '').strip()  # odstranit tečky
+        if code:
+            return code
+
     if '.' in barcode:
         code = barcode.split('.')[0].strip()
         if code:
             return code
-    
-    # Pokud obsahuje #, rozdělit a vzít část před #
-    if '#' in barcode:
-        code = barcode.split('#')[0].strip()
-        # Odstranit tečky na konci
-        code = code.rstrip('.')
-        if code:
-            return code
-    
-    # Odstranit úvodní nuly (pokud to není jen "0")
-    if barcode.startswith('0') and len(barcode) > 1:
-        barcode = barcode.lstrip('0') or '0'
-    
+
     return barcode
 
 
