@@ -1,7 +1,7 @@
 @echo off
 REM ========================================
-REM Jednoduchý skript pro vytvoření Windows EXE
-REM Spusťte tento soubor na Windows počítači
+REM Skript pro vytvoreni Windows EXE
+REM Spustte tento soubor na Windows pocitaci
 REM ========================================
 
 echo.
@@ -31,7 +31,7 @@ REM Instalace zavislosti
 echo Instaluji zavislosti...
 echo.
 python -m pip install --upgrade pip
-pip install pyinstaller ttkbootstrap matplotlib
+pip install pyinstaller ttkbootstrap matplotlib tkcalendar reportlab
 
 if errorlevel 1 (
     echo.
@@ -52,7 +52,24 @@ echo.
 pyinstaller --onefile ^
     --windowed ^
     --name="DatabazeBarevu" ^
-    --add-data="testExport.XML;." ^
+    --icon="model_logo.ico" ^
+    --add-data="model_logo.ico;." ^
+    --add-data="MODEL_Logo_M.png;." ^
+    --add-data="fonts/DejaVuSans.ttf;fonts" ^
+    --add-data="fonts/DejaVuSans-Bold.ttf;fonts" ^
+    --hidden-import=ttkbootstrap ^
+    --hidden-import=matplotlib ^
+    --hidden-import=matplotlib.backends.backend_tkagg ^
+    --hidden-import=tkcalendar ^
+    --hidden-import=babel.numbers ^
+    --hidden-import=reportlab ^
+    --hidden-import=reportlab.platypus ^
+    --hidden-import=reportlab.lib.pagesizes ^
+    --hidden-import=reportlab.lib.styles ^
+    --hidden-import=reportlab.lib.units ^
+    --hidden-import=reportlab.lib.colors ^
+    --collect-all=tkcalendar ^
+    --collect-all=reportlab ^
     --clean ^
     gui.py
 

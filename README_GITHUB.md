@@ -1,85 +1,70 @@
-# 🚀 Automatické vytvoření Windows EXE pomocí GitHub
+# Automatické vytvoření Windows EXE pomocí GitHub Actions
 
-## Postup (5 minut):
+## Jak to funguje
 
-### 1. Vytvořte GitHub účet (pokud nemáte)
-- Jděte na: https://github.com/signup
-- Zaregistrujte se zdarma
+Při každém push na větev `main` GitHub automaticky sestaví `DatabazeBarevu.exe` na Windows serveru. Stačí stáhnout hotový soubor.
 
-### 2. Vytvořte nový repozitář
-1. Přihlaste se na GitHub
-2. Klikněte na "+" vpravo nahoře → "New repository"
-3. Název: `databaze-barevu` (nebo jakýkoliv)
-4. Nastavte jako **Public** (nebo Private, obojí funguje)
-5. Klikněte "Create repository"
+---
 
-### 3. Nahrajte soubory
-Máte 2 možnosti:
+## Stažení EXE (nejrychlejší způsob)
 
-#### Možnost A: Přes webové rozhraní (jednodušší)
-1. Na stránce repozitáře klikněte "uploading an existing file"
-2. Přetáhněte všechny soubory z `python_project` složky
-3. Klikněte "Commit changes"
+1. Záložka **Actions** v repozitáři
+2. Klikněte na poslední úspěšný běh (zelená fajfka ✓)
+3. Sekce **Artifacts** → klikněte `DatabazeBarevu-Windows`
+4. Rozbalte ZIP → uvnitř je `DatabazeBarevu.exe`
 
-#### Možnost B: Přes Git (pokud máte nainstalovaný)
+Artefakt je dostupný 30 dní od buildu.
+
+---
+
+## Trvalé stažení přes Release
+
+Pro trvalý odkaz ke stažení vytvořte Release pomocí tagu:
+
 ```bash
-cd python_project
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/VAS_UZIVATEL/databaze-barevu.git
-git push -u origin main
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-### 4. Spusťte GitHub Actions
-1. V repozitáři klikněte na záložku "Actions"
-2. Pokud vidíte "Build Windows EXE", klikněte na něj
-3. Klikněte "Run workflow" → "Run workflow"
-4. Počkejte 5-10 minut (GitHub automaticky vytvoří EXE)
+GitHub Actions automaticky vytvoří Release a přiloží EXE. Stáhnout lze ze záložky **Releases**.
 
-### 5. Stáhněte Windows EXE
-1. Po dokončení (zelená fajfka ✓) klikněte na workflow run
-2. Scrollujte dolů na "Artifacts"
-3. Klikněte na "DatabazeBarevu-Windows"
-4. Stáhne se ZIP soubor s EXE
+---
 
-### 6. Rozbalte a použijte
-1. Rozbalte ZIP
-2. Uvnitř najdete `DatabazeBarevu.exe`
-3. Zkopírujte na Windows počítač
-4. Dvojklik a funguje! 🎉
+## Ruční spuštění buildu
 
-## 🔄 Při každé změně kódu:
+1. Záložka **Actions**
+2. Vlevo klikněte „Build Windows EXE"
+3. Tlačítko **Run workflow** → **Run workflow**
+4. Počkejte 5–10 minut
 
-1. Nahrajte změněné soubory na GitHub
-2. GitHub automaticky vytvoří nový EXE
-3. Stáhněte z "Actions" → "Artifacts"
+---
 
-## ⚠️ Poznámky:
+## Co EXE obsahuje
 
-- GitHub Actions je **zdarma** pro veřejné repozitáře
-- Pro soukromé repozitáře máte 2000 minut/měsíc zdarma
-- Build trvá 5-10 minut
-- EXE je platný 90 dní (pak ho musíte znovu stáhnout)
+Všechny závislosti jsou zabaleny přímo v EXE — na cílovém počítači není potřeba nic instalovat.
 
-## 🆘 Problémy?
+| Knihovna | Funkce |
+|---|---|
+| `ttkbootstrap` | Moderní vzhled |
+| `matplotlib` | Koláčový graf složení |
+| `tkcalendar` | Výběr data kliknutím z kalendáře |
+| `reportlab` + DejaVuSans | Export do PDF s českou diakritikou |
 
-### Actions se nespustily
-- Zkontrolujte, že složka `.github/workflows/` je správně nahraná
-- Soubor musí být: `.github/workflows/build-windows.yml`
+---
 
-### Build selhal
-- Klikněte na červený křížek pro zobrazení chyby
-- Obvykle pomůže znovu spustit workflow
+## Při každé změně kódu
 
-### Artifact není k dispozici
-- Počkejte, až build dokončí (zelená fajfka)
-- Artifact je dostupný pouze 90 dní
+Push na `main` → GitHub automaticky spustí nový build → stáhněte nový artefakt.
 
-## 📧 Alternativa: Pošlete mi soubory
+---
 
-Pokud nechcete používat GitHub, můžete:
-1. Zabalit složku `python_project` do ZIP
-2. Poslat mi ji
-3. Já vytvořím Windows EXE a pošlu zpět
+## Časté problémy
+
+**Build selhal (červený křížek)**
+Klikněte na běh → zobrazí se log s chybou. Nejčastěji pomůže znovu spustit workflow.
+
+**Artifact není vidět**
+Počkejte až build dokončí — artefakt se objeví až po úspěšném dokončení.
+
+**Složka `.github/workflows/` chybí**
+Ujistěte se, že je soubor `.github/workflows/build-windows.yml` správně nahrán do repozitáře.

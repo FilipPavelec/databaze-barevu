@@ -1,97 +1,98 @@
-# 🪟 Jak vytvořit Windows EXE - Krok za krokem
+# Jak vytvořit Windows EXE — krok za krokem
 
-## 📋 Co potřebujete:
-- Windows počítač (Windows 10 nebo 11)
+## Co potřebujete
+- Windows 10 nebo 11
 - Připojení k internetu
 - 10 minut času
 
-## 🚀 Postup (velmi jednoduchý):
+---
 
-### Krok 1: Zkopírujte složku na Windows
-Zkopírujte celou složku `python_project` na váš Windows počítač (např. na plochu).
+## Postup
 
-### Krok 2: Nainstalujte Python (pokud nemáte)
-1. Jděte na: https://www.python.org/downloads/
-2. Stáhněte nejnovější Python (3.11 nebo novější)
+### Krok 1 — Nainstalujte Python (pokud nemáte)
+1. Jděte na https://www.python.org/downloads/
+2. Stáhněte Python 3.11 nebo novější
 3. Spusťte instalátor
-4. ⚠️ **DŮLEŽITÉ:** Zaškrtněte "Add Python to PATH"
-5. Klikněte "Install Now"
+4. **DŮLEŽITÉ:** Zaškrtněte „Add Python to PATH"
+5. Klikněte „Install Now"
 
-### Krok 3: Vytvořte EXE
-1. Otevřete složku `python_project` na Windows
-2. **Dvojklik** na soubor `build_windows_simple.bat`
-3. Počkejte 2-5 minut (automaticky nainstaluje vše potřebné)
-4. Hotovo! 🎉
+### Krok 2 — Spusťte build skript
+1. Otevřete složku projektu na Windows
+2. Dvojklik na soubor `build_windows_simple.bat`
+3. Počkejte 3–7 minut (skript automaticky nainstaluje vše potřebné)
+4. Po dokončení se otevře složka `dist` s EXE souborem
 
-### Krok 4: Najděte EXE
-Po dokončení se automaticky otevře složka `dist` s vaším EXE souborem:
-- **Soubor:** `DatabazeBarevu.exe`
-- **Velikost:** cca 60-80 MB
+### Krok 3 — Hotovo
+Soubor `dist\DatabazeBarevu.exe` je připraven k použití.
 
-## ✅ Použití EXE:
+---
 
-### Na jakémkoliv Windows počítači:
+## Co skript nainstaluje automaticky
+
+| Balíček | Účel |
+|---|---|
+| `pyinstaller` | Vytvoření EXE |
+| `ttkbootstrap` | Moderní vzhled aplikace |
+| `matplotlib` | Koláčový graf složení |
+| `tkcalendar` | Výběr data kliknutím (kalendář) |
+| `reportlab` | Export do PDF s českou diakritikou |
+
+---
+
+## Použití EXE na Windows
+
 1. Zkopírujte `DatabazeBarevu.exe` kamkoliv
-2. Dvojklik na EXE
-3. Aplikace se spustí!
+2. Dvojklik — aplikace se spustí bez instalace čehokoliv
+3. Klikněte „Načíst soubor" a vyberte XML export z míchacího stroje
 
-### S vlastní databází:
-- Dejte `testExport.XML` do stejné složky jako EXE (automaticky se načte)
-- Nebo použijte tlačítko "📂 Načíst soubor" v aplikaci
+---
 
-## ⚠️ Windows Defender varování
+## Co aplikace umí
 
-Při prvním spuštění může Windows Defender zobrazit varování:
+**Záložka Vyhledávání podle kódu**
+- Zadejte kód receptu nebo naskenujte čárový kód čtečkou
+- Formát skeneru `286.........#00012979` — aplikace automaticky vyhledá podle čísla za `#`
+- Zobrazí složení s časy nadávkování, ventily, šaržemi a hmotností v kg
+- Koláčový graf složení
+- Historie míchání receptu
+
+**Záložka Filtrování podle data**
+- Kliknutím na pole vyberte datum z kalendáře
+- Zobrazí seznam receptů v daném období
+- Dvojklik na řádek = detail receptu
+
+**Záložka Pokročilé filtrování**
+- Filtr podle data a času
+- Filtr podle čísla ventilu
+- Filtr podle názvu nebo čísla barvy (např. „48", „Blue 17", „Transparent")
+- Dvojklik na řádek = detail receptu
+
+**Export výsledků**
+- Tlačítko „Export" v záložce Vyhledávání i Pokročilé filtrování
+- Formáty: TXT, CSV (pro Excel), PDF (s českou diakritikou)
+
+---
+
+## Varování Windows Defenderu
+
+Při prvním spuštění může Windows zobrazit:
 ```
 Windows chránil váš počítač
 ```
 
-**To je normální!** PyInstaller EXE jsou často označeny jako podezřelé.
+To je normální u PyInstaller EXE. Postup:
+1. Klikněte „Další informace"
+2. Klikněte „Přesto spustit"
 
-### Jak spustit:
-1. Klikněte "Další informace"
-2. Klikněte "Přesto spustit"
+---
 
-### Nebo přidejte výjimku:
-1. Otevřete Windows Security
-2. Virus & threat protection
-3. Manage settings
-4. Add or remove exclusions
-5. Přidejte složku s EXE
+## Časté problémy
 
-## 🎨 Co aplikace umí:
+**„Python není rozpoznán jako příkaz"**
+Řešení: Přeinstalujte Python a zaškrtněte „Add Python to PATH"
 
-### Záložka 1: Vyhledávání podle kódu
-- Naskenujte čárový kód čtečkou
-- Nebo zadejte kód ručně
-- Zobrazí recept s grafem složení
+**Build selže s chybou**
+Řešení: Spusťte `build_windows_simple.bat` znovu — někdy pomůže druhý pokus
 
-### Záložka 2: Filtrování podle data
-- Zadejte rozsah dat
-- Zobrazí seznam receptů
-- Dvojklik pro detail
-
-### Záložka 3: Pokročilé filtrování
-- Filtr podle data a času
-- Filtr podle čísla ventilu
-- Kombinace filtrů
-
-## 🆘 Problémy?
-
-### Python není nainstalován
-```
-'python' is not recognized as an internal or external command
-```
-**Řešení:** Nainstalujte Python a zaškrtněte "Add Python to PATH"
-
-### Chyba při buildu
-**Řešení:** Zkuste znovu spustit `build_windows_simple.bat`
-
-### EXE se nespustí
-**Řešení:** 
-1. Zkontrolujte Windows Defender
-2. Zkuste spustit jako administrátor (pravý klik → "Run as administrator")
-
-## 📞 Kontakt
-
-Pokud máte problémy, pošlete screenshot chyby.
+**EXE se nespustí**
+Řešení: Zkuste pravý klik → „Spustit jako správce"

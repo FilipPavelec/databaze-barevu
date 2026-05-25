@@ -1,70 +1,71 @@
 # Vytvoření Windows EXE
 
-## Problém
-Na Linuxu nelze přímo vytvořit Windows EXE soubor. Existují 3 možnosti:
+## Možnost 1 — Windows počítač (nejjednodušší)
 
-## ✅ Možnost 1: Použít Windows počítač (nejjednodušší)
+1. Zkopírujte celou složku projektu na Windows
+2. Nainstalujte Python 3.11+ z https://www.python.org/downloads/ (zaškrtněte „Add Python to PATH")
+3. Dvojklik na `build_windows_simple.bat`
+4. EXE najdete v `dist\DatabazeBarevu.exe`
 
-### Kroky:
-1. Zkopírujte celou složku `python_project` na Windows počítač
-2. Nainstalujte Python 3.11+ z https://www.python.org/downloads/
-3. Otevřete Command Prompt (cmd) ve složce `python_project`
-4. Spusťte:
+Nebo ručně v příkazovém řádku:
 ```cmd
-pip install pyinstaller ttkbootstrap matplotlib
-pyinstaller --onefile --windowed --name="DatabazeBarevu" --add-data="testExport.XML;." --clean gui.py
+pip install pyinstaller ttkbootstrap matplotlib tkcalendar reportlab
+pyinstaller --onefile --windowed --name="DatabazeBarevu" ^
+    --icon="model_logo.ico" ^
+    --add-data="model_logo.ico;." ^
+    --add-data="MODEL_Logo_M.png;." ^
+    --add-data="fonts/DejaVuSans.ttf;fonts" ^
+    --add-data="fonts/DejaVuSans-Bold.ttf;fonts" ^
+    --hidden-import=ttkbootstrap ^
+    --hidden-import=matplotlib ^
+    --hidden-import=matplotlib.backends.backend_tkagg ^
+    --hidden-import=tkcalendar ^
+    --hidden-import=babel.numbers ^
+    --hidden-import=reportlab ^
+    --collect-all=tkcalendar ^
+    --collect-all=reportlab ^
+    --clean gui.py
 ```
-5. EXE najdete v `dist\DatabazeBarevu.exe`
 
-## ✅ Možnost 2: GitHub Actions (automatické)
+---
 
-### Kroky:
-1. Vytvořte GitHub repozitář
-2. Nahrajte složku `python_project` do repozitáře
-3. GitHub automaticky vytvoří Windows EXE pomocí workflow
-4. Stáhněte EXE z "Actions" záložky
+## Možnost 2 — GitHub Actions (automatické, bez Windows PC)
 
-Workflow soubor je již připraven v `.github/workflows/build-windows.yml`
+Při každém push na větev `main` GitHub automaticky sestaví EXE.
 
-## ✅ Možnost 3: Wine na Linuxu (pokročilé)
+**Stažení artefaktu:**
+1. Záložka **Actions** na GitHubu
+2. Klikněte na poslední úspěšný běh
+3. Sekce **Artifacts** → stáhněte `DatabazeBarevu-Windows`
+4. Artefakt je dostupný 30 dní
 
-### Instalace Wine a Python pro Windows:
+**Vytvoření trvalého Release:**
 ```bash
-# Nainstalovat Wine
-sudo apt install wine64 winetricks
-
-# Stáhnout Python pro Windows
-wget https://www.python.org/ftp/python/3.11.0/python-3.11.0-amd64.exe
-
-# Nainstalovat Python ve Wine
-wine python-3.11.0-amd64.exe /quiet InstallAllUsers=1 PrependPath=1
-
-# Nainstalovat závislosti
-wine python -m pip install pyinstaller ttkbootstrap matplotlib
-
-# Vytvořit EXE
-cd python_project
-wine pyinstaller --onefile --windowed --name="DatabazeBarevu" --add-data="testExport.XML;." --clean gui.py
+git tag v1.0.0
+git push origin v1.0.0
 ```
+GitHub Actions automaticky vytvoří Release s EXE ke stažení.
 
-## 📦 Výsledek
+---
 
-Po úspěšném buildu získáte:
-- **Soubor:** `DatabazeBarevu.exe`
-- **Velikost:** cca 60-80 MB
-- **Požadavky:** Žádné! Funguje na jakémkoliv Windows 10/11 bez instalace
+## Výsledný EXE
 
-## 🚀 Použití na Windows
+- Velikost: cca 80–120 MB
+- Funguje na Windows 10 a 11 bez instalace čehokoliv
+- Obsahuje: Python runtime, všechny knihovny, fonty pro PDF export
 
-1. Zkopírujte `DatabazeBarevu.exe` kamkoliv
-2. Dvojklik na EXE
-3. Aplikace se spustí s moderním GUI
-4. Automaticky načte `testExport.XML` pokud je ve stejné složce
-5. Nebo použijte tlačítko "Načíst soubor" pro jiný XML
+## Obsah EXE
 
-## ⚠️ Poznámky
+| Soubor/knihovna | Účel |
+|---|---|
+| `ttkbootstrap` | Moderní vzhled |
+| `matplotlib` | Koláčový graf |
+| `tkcalendar` | Kalendář pro výběr data |
+| `reportlab` | PDF export s českou diakritikou |
+| `fonts/DejaVuSans.ttf` | Font pro PDF (diakritika) |
+| `MODEL_Logo_M.png` | Logo v aplikaci |
 
-- Windows Defender může označit EXE jako podezřelý (false positive)
-- To je normální u PyInstaller EXE souborů
-- Klikněte "Další informace" → "Přesto spustit"
-- Nebo přidejte výjimku do Windows Defenderu
+## Poznámky
+
+- Windows Defender může označit EXE jako podezřelý — to je normální u PyInstaller souborů
+- Klikněte „Další informace" → „Přesto spustit"
