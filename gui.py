@@ -21,7 +21,6 @@ from tkinter import filedialog, messagebox, scrolledtext
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
-import csv
 
 # Pokus o načtení reportlab pro export do PDF.
 try:
@@ -1599,19 +1598,15 @@ class ColorDatabaseGUI:
 
         if TTKBOOTSTRAP_AVAILABLE:
             ttk.Button(btn_frame, text="TXT", command=lambda: do_export('txt'),
-                       bootstyle="secondary", width=10).pack(side=tk.LEFT, padx=8)
-            ttk.Button(btn_frame, text="CSV", command=lambda: do_export('csv'),
-                       bootstyle="info", width=10).pack(side=tk.LEFT, padx=8)
+                       bootstyle="secondary", width=12).pack(side=tk.LEFT, padx=12)
             pdf_btn = ttk.Button(btn_frame, text="PDF", command=lambda: do_export('pdf'),
-                                 bootstyle="danger", width=10)
+                                 bootstyle="primary", width=12)
         else:
             ttk.Button(btn_frame, text="TXT", command=lambda: do_export('txt'),
-                       width=10).pack(side=tk.LEFT, padx=8)
-            ttk.Button(btn_frame, text="CSV", command=lambda: do_export('csv'),
-                       width=10).pack(side=tk.LEFT, padx=8)
-            pdf_btn = ttk.Button(btn_frame, text="PDF", command=lambda: do_export('pdf'), width=10)
+                       width=12).pack(side=tk.LEFT, padx=12)
+            pdf_btn = ttk.Button(btn_frame, text="PDF", command=lambda: do_export('pdf'), width=12)
 
-        pdf_btn.pack(side=tk.LEFT, padx=8)
+        pdf_btn.pack(side=tk.LEFT, padx=12)
         if not REPORTLAB_AVAILABLE:
             pdf_btn.config(state='disabled')
             ttk.Label(frame, text="PDF: pip install reportlab",
@@ -1622,19 +1617,15 @@ class ColorDatabaseGUI:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         default_name = f"export_{timestamp}"
 
-        # Určit zdroj dat a záhlaví sloupců
+        # Určit zdroj dat
         if source == 'search':
-            # Záložka Vyhledávání — exportuje text z result_text
             tree = None
-            headers = []
             text_content = self.result_text.get(1.0, tk.END).strip()
         elif source == 'date':
             tree = self.date_tree
-            headers = ["PK", "Nazev", "Mnozstvi (g)", "Datum"]
             text_content = None
         else:  # advanced
             tree = self.adv_tree
-            headers = ["PK", "Nazev", "Mnozstvi (g)", "Datum", "Cas", "Ventily", "Sarze"]
             text_content = None
 
         try:
@@ -1656,29 +1647,6 @@ class ColorDatabaseGUI:
                     else:
                         f.write(text_content)
                 messagebox.showinfo("Export", f"Soubor ulozen:\n{filepath}")
-
-            elif fmt == 'csv':
-                filepath = filedialog.asksaveasfilename(
-                    title="Ulozit jako CSV",
-                    defaultextension=".csv",
-                    initialfile=default_name + ".csv",
-                    filetypes=[("CSV soubory", "*.csv"), ("Vsechny soubory", "*.*")]
-                )
-                if not filepath:
-                    return
-                if tree is not None:
-                    rows = self._treeview_to_csv_rows(tree)
-                else:
-                    rows = self._parse_content_to_rows(text_content, source)
-                    headers = ["Recept", "PK", "Datum", "Slozka", "Ventil", "Sarze", "Mnozstvi (g)"]
-                # utf-8-sig = BOM, Excel na Windows ho spravne otevře
-                with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-                    writer = csv.writer(f, delimiter=';')
-                    writer.writerow(headers)
-                    for row in rows:
-                        writer.writerow(row)
-                messagebox.showinfo("Export",
-                    f"Soubor ulozen:\n{filepath}\n\nRadku dat: {len(rows)}")
 
             elif fmt == 'pdf':
                 if not REPORTLAB_AVAILABLE:
@@ -1709,14 +1677,6 @@ class ColorDatabaseGUI:
         except Exception as e:
             messagebox.showerror("Chyba exportu", f"Export selhal:\n{type(e).__name__}: {e}")
 
-    def _treeview_to_csv_rows(self, tree):
-        """Převést všechny řádky Treeview na seznam seznamů pro CSV."""
-        rows = []
-        for item_id in tree.get_children():
-            values = tree.item(item_id, 'values')
-            rows.append(list(values))
-        return rows
-
     def _treeview_to_text(self, tree):
         """Převést Treeview na čitelný textový výstup pro TXT/PDF export."""
         lines = []
@@ -1739,64 +1699,6 @@ class ColorDatabaseGUI:
         lines.append('')
         lines.append(f"Celkem záznamů: {len(tree.get_children())}")
         return '\n'.join(lines)
-
-    def _parse_content_to_rows(self, content, source):
-        """
-        Převést textový obsah na řádky pro CSV export.
-        Parsuje strukturu výstupu a vrátí seznam řádků
-        [recept, pk, datum, složka, ventil, šarže, množství].
-        """
-        rows = []
-        current_recipe = ''
-        current_pk = ''
-        current_date = ''
-
-        for line in content.splitlines():
-            line = line.strip()
-            if not line or line.startswith('─') or line.startswith('='):
-                continue
-
-            # Záhlaví receptu — "1.  286  (PK: 18)" nebo "RECEPT: 286"
-            if line.startswith('RECEPT:') or (line and line[0].isdigit() and '.  ' in line):
-                if 'PK:' in line:
-                    # formát pokročilého filtrování: "1.  286  (PK: 18)"
-                    parts = line.split('(PK:')
-                    current_recipe = parts[0].split('.', 1)[-1].strip() if '.' in parts[0] else parts[0].strip()
-                    current_pk = parts[1].replace(')', '').strip() if len(parts) > 1 else ''
-                else:
-                    # formát vyhledávání: "RECEPT: 286  [míchání #12979]"
-                    current_recipe = line.replace('RECEPT:', '').split('[')[0].strip()
-                    current_pk = ''
-                current_date = ''
-
-            # Datum
-            elif 'Datum' in line or '📅' in line:
-                current_date = line.split(':', 1)[-1].strip() if ':' in line else ''
-
-            # Složka — "• Blue 17" nebo "  • Blue 17"
-            elif line.startswith('•'):
-                ingredient = line.lstrip('• ').strip()
-                rows.append([current_recipe, current_pk, current_date, ingredient, '', '', ''])
-
-            # Detail složky — "Ventil: 14   |   Šarže: 2BADSL0782   |   Množství: 800025 g"
-            elif 'Ventil:' in line and rows:
-                parts = [p.strip() for p in line.split('|')]
-                ventil = ''
-                sarze = ''
-                mnozstvi = ''
-                for p in parts:
-                    if p.startswith('Ventil:'):
-                        ventil = p.replace('Ventil:', '').strip()
-                    elif p.startswith('Šarže:'):
-                        sarze = p.replace('Šarže:', '').strip()
-                    elif p.startswith('Množství:'):
-                        mnozstvi = p.replace('Množství:', '').replace('g', '').strip()
-                # Doplnit do posledního řádku
-                rows[-1][4] = ventil
-                rows[-1][5] = sarze
-                rows[-1][6] = mnozstvi
-
-        return rows
 
     def _export_pdf(self, content, filepath):
         """Exportovat obsah do PDF pomocí reportlab s podporou české diakritiky."""
