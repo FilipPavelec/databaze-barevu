@@ -4,16 +4,19 @@ Databáze barev — grafické rozhraní (GUI)
 =========================================
 Aplikace pro vyhledávání a filtrování receptů z XML exportu míchacího stroje.
 
-Funkce:
-  - Vyhledávání receptu podle kódu nebo čárového kódu
-  - Filtrování receptů podle data vytvoření
-  - Pokročilé filtrování podle data, času, ventilu a šarže
+Co aplikace umí:
+  - Vyhledat recept podle kódu nebo naskenovaného čárového kódu
+  - Zobrazit složení receptu (barvy, ventily, šarže, hmotnosti)
+  - Filtrovat míchání podle data (kdy byl recept skutečně namíchán)
+  - Pokročilé filtrování: datum + čas + číslo ventilu + název barvy
   - Koláčový graf složení receptu
-  - Historie míchání každého receptu
+  - Historie všech míchání každého receptu
+  - Export výsledků do TXT nebo PDF
 
-Závislosti (volitelné, aplikace funguje i bez nich):
-  - ttkbootstrap  → moderní vzhled (pip install ttkbootstrap)
-  - matplotlib    → koláčový graf  (pip install matplotlib)
+Volitelné závislosti (aplikace funguje i bez nich):
+  - ttkbootstrap  → hezčí moderní vzhled (pip install ttkbootstrap)
+  - matplotlib    → koláčový graf        (pip install matplotlib)
+  - reportlab     → export do PDF        (pip install reportlab)
 """
 
 import tkinter as tk
@@ -22,7 +25,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
 
-# Pokus o načtení reportlab pro export do PDF.
+# Pokus o načtení reportlab (knihovna pro tvorbu PDF).
+# Pokud není nainstalovaná, tlačítko PDF bude v aplikaci zašedlé.
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -33,8 +37,8 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
-# Pokus o načtení ttkbootstrap pro moderní vzhled.
-# Pokud není nainstalován, použije se standardní tkinter ttk.
+# Pokus o načtení ttkbootstrap (knihovna pro hezčí vzhled tlačítek a widgetů).
+# Pokud není nainstalovaná, použije se standardní šedý vzhled tkinter.
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import *
@@ -43,50 +47,53 @@ except ImportError:
     from tkinter import ttk
     TTKBOOTSTRAP_AVAILABLE = False
 
-import calendar
+import calendar  # standardní Python modul pro práci s kalendářem (názvy měsíců, počty dnů)
 
 
 class DatePickerPopup:
     """
-    Jednoduchý popup kalendář v čistém tkinter.
+    Vyskakovací okno s kalendářem pro výběr data kliknutím.
 
-    Nevyžaduje tkcalendar ani žádnou jinou závislost — funguje
-    spolehlivě i s ttkbootstrap, protože nepoužívá žádné ttk widgety
-    které by ttkbootstrap mohl přepsat.
+    Nevyžaduje žádné externí knihovny — funguje v čistém tkinter.
+    Je záměrně napsán bez ttk widgetů, protože ttkbootstrap přepisuje
+    styly ttk a rozbíjel by zobrazení kalendáře.
 
-    Použití:
-        DatePickerPopup(parent, callback, initial_date="2024-01-15")
-        # callback(date_str) je zavolán po výběru data ve formátu RRRR-MM-DD
+    Jak se používá:
+        DatePickerPopup(rodičovský_widget, callback_funkce, initial_date="2024-01-15")
+        # callback_funkce(datum) se zavolá po kliknutí na den, datum je ve formátu RRRR-MM-DD
     """
 
     def __init__(self, parent, callback, initial_date=None):
-        self.callback = callback
+        self.callback = callback  # funkce která se zavolá po výběru data
 
-        # Počáteční datum
+        # Nastavit počáteční zobrazený měsíc a rok
         today = datetime.now()
         if initial_date:
             try:
                 dt = datetime.strptime(initial_date, '%Y-%m-%d')
-                self.year = dt.year
+                self.year  = dt.year
                 self.month = dt.month
                 self.selected_day = dt.day
             except ValueError:
-                self.year = today.year
+                # Pokud se datum nepodaří načíst, zobrazit dnešní měsíc
+                self.year  = today.year
                 self.month = today.month
                 self.selected_day = today.day
         else:
-            self.year = today.year
+            self.year  = today.year
             self.month = today.month
             self.selected_day = today.day
 
-        # Popup okno — používáme čistý tk.Toplevel, ne ttk
+        # Vytvořit nové okno — tk.Toplevel = samostatné okno nad hlavním
+        # grab_set() = uživatel musí nejdřív zavřít kalendář, pak může klikat jinam
+        # transient() = kalendář patří k rodičovskému oknu (minimalizuje se s ním)
         self.win = tk.Toplevel(parent)
         self.win.title("Vyberte datum")
         self.win.resizable(False, False)
         self.win.grab_set()
         self.win.transient(parent)
 
-        # Zarovnat popup pod kurzor / vedle rodiče
+        # Umístit kalendář těsně pod tlačítko které ho otevřelo
         parent.update_idletasks()
         x = parent.winfo_rootx()
         y = parent.winfo_rooty() + parent.winfo_height()
@@ -95,21 +102,22 @@ class DatePickerPopup:
         self._build_ui()
 
     def _build_ui(self):
-        """Sestavit UI kalendáře."""
-        bg = "#ffffff"
-        header_bg = "#2c6fad"
-        header_fg = "#ffffff"
-        day_bg = "#ffffff"
-        day_hover = "#d0e8ff"
-        day_selected = "#2c6fad"
-        day_selected_fg = "#ffffff"
-        weekend_fg = "#c0392b"
-        other_month_fg = "#cccccc"
-        today_fg = "#27ae60"
+        """Sestavit celé rozhraní kalendáře — záhlaví, navigaci, mřížku dnů a tlačítko Dnes."""
+        # Definice barev kalendáře
+        bg             = "#ffffff"   # bílé pozadí
+        header_bg      = "#2c6fad"   # modrá lišta nahoře
+        header_fg      = "#ffffff"   # bílý text v liště
+        day_hover      = "#d0e8ff"   # světle modrá při najetí myší
+        day_selected   = "#2c6fad"   # modrá pro vybraný den
+        day_selected_fg= "#ffffff"   # bílý text vybraného dne
+        weekend_fg     = "#c0392b"   # červená pro sobotu a neděli
+        other_month_fg = "#cccccc"   # šedá pro dny mimo aktuální měsíc
+        today_fg       = "#27ae60"   # zelená pro dnešní datum
+        day_bg         = "#ffffff"
 
         self.win.configure(bg=bg)
 
-        # ── Záhlaví: ← Měsíc Rok → ──────────────────────────────────
+        # ── Záhlaví: tlačítko < | Název měsíce a rok | tlačítko > ─────────
         header = tk.Frame(self.win, bg=header_bg, pady=6)
         header.pack(fill=tk.X)
 
@@ -127,7 +135,7 @@ class DatePickerPopup:
                   activebackground="#1a4f80", activeforeground=header_fg,
                   cursor="hand2", command=self._next_month).pack(side=tk.RIGHT, padx=8)
 
-        # ── Navigace roku ────────────────────────────────────────────
+        # ── Navigace roku: << rok | rok >> ──────────────────────────────────
         year_nav = tk.Frame(self.win, bg=bg, pady=2)
         year_nav.pack(fill=tk.X)
 
@@ -139,22 +147,22 @@ class DatePickerPopup:
                   relief=tk.FLAT, font=("TkDefaultFont", 9),
                   cursor="hand2", command=self._next_year).pack(side=tk.RIGHT, padx=8)
 
-        # ── Názvy dnů ────────────────────────────────────────────────
+        # ── Záhlaví sloupců: Po Út St Čt Pá So Ne ──────────────────────────
         days_header = tk.Frame(self.win, bg=bg)
         days_header.pack(fill=tk.X, padx=4)
 
         day_names = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"]
         for i, d in enumerate(day_names):
-            fg = weekend_fg if i >= 5 else "#555555"
+            fg = weekend_fg if i >= 5 else "#555555"  # víkendy červeně
             tk.Label(days_header, text=d, bg=bg, fg=fg,
                      font=("TkDefaultFont", 9, "bold"),
                      width=4, anchor=tk.CENTER).grid(row=0, column=i, padx=1, pady=2)
 
-        # ── Mřížka dnů ───────────────────────────────────────────────
+        # ── Mřížka dnů — vyplní se v _render_grid() ─────────────────────────
         self.grid_frame = tk.Frame(self.win, bg=bg)
         self.grid_frame.pack(fill=tk.BOTH, padx=4, pady=(0, 4))
 
-        # ── Tlačítko Dnes ────────────────────────────────────────────
+        # ── Tlačítko pro rychlý skok na dnešní datum ─────────────────────────
         today_frame = tk.Frame(self.win, bg=bg, pady=4)
         today_frame.pack(fill=tk.X)
 
@@ -163,7 +171,7 @@ class DatePickerPopup:
                   cursor="hand2", command=self._select_today,
                   padx=10, pady=3).pack()
 
-        # Uložit barvy pro použití v _render_grid
+        # Uložit barvy jako slovník — _render_grid() je potřebuje při každém překreslení
         self._colors = {
             'bg': bg, 'day_hover': day_hover,
             'day_selected': day_selected, 'day_selected_fg': day_selected_fg,
@@ -174,53 +182,50 @@ class DatePickerPopup:
         self._render_grid()
 
     def _render_grid(self):
-        """Překreslit mřížku dnů pro aktuální měsíc/rok."""
+        """
+        Překreslit mřížku tlačítek dnů pro aktuálně zobrazený měsíc a rok.
+
+        Volá se při každé změně měsíce nebo roku. Nejdřív smaže stará tlačítka,
+        pak vytvoří nová podle aktuálního self.month a self.year.
+        Dnešní datum je zelené, vybraný den modrý, víkendy červené.
+        """
         c = self._colors
         today = datetime.now()
 
-        # Vymazat starou mřížku
+        # Smazat všechna stará tlačítka dnů
         for widget in self.grid_frame.winfo_children():
             widget.destroy()
 
-        # Aktualizovat záhlaví
+        # Aktualizovat nadpis (např. "Duben 2026")
         month_names = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen",
                        "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"]
         self.header_label.config(text=f"{month_names[self.month - 1]} {self.year}")
 
-        # Sestavit kalendář — calendar.monthcalendar vrátí týdny jako řádky
-        # Každý týden je seznam 7 čísel (0 = den nepatří do tohoto měsíce)
+        # calendar.monthcalendar vrátí seznam týdnů, každý týden = seznam 7 čísel
+        # 0 znamená že den patří do předchozího nebo následujícího měsíce
         weeks = calendar.monthcalendar(self.year, self.month)
 
         for row_idx, week in enumerate(weeks):
             for col_idx, day in enumerate(week):
                 if day == 0:
-                    # Den z předchozího/následujícího měsíce — zobrazit šedě
-                    lbl = tk.Label(self.grid_frame, text="", bg=c['bg'],
-                                   width=4, height=1)
-                    lbl.grid(row=row_idx, column=col_idx, padx=1, pady=1)
+                    # Prázdné místo pro dny mimo aktuální měsíc
+                    tk.Label(self.grid_frame, text="", bg=c['bg'],
+                             width=4, height=1).grid(row=row_idx, column=col_idx, padx=1, pady=1)
                     continue
 
-                is_today = (day == today.day and self.month == today.month
-                            and self.year == today.year)
+                # Určit barvu tlačítka podle stavu dne
+                is_today    = (day == today.day and self.month == today.month and self.year == today.year)
                 is_selected = (day == self.selected_day)
-                is_weekend = col_idx >= 5
+                is_weekend  = (col_idx >= 5)  # sloupce 5 a 6 = sobota a neděle
 
                 if is_selected:
-                    bg_color = c['day_selected']
-                    fg_color = c['day_selected_fg']
-                    font_weight = "bold"
+                    bg_color, fg_color, font_weight = c['day_selected'], c['day_selected_fg'], "bold"
                 elif is_today:
-                    bg_color = c['bg']
-                    fg_color = c['today_fg']
-                    font_weight = "bold"
+                    bg_color, fg_color, font_weight = c['bg'], c['today_fg'], "bold"
                 elif is_weekend:
-                    bg_color = c['bg']
-                    fg_color = c['weekend_fg']
-                    font_weight = "normal"
+                    bg_color, fg_color, font_weight = c['bg'], c['weekend_fg'], "normal"
                 else:
-                    bg_color = c['bg']
-                    fg_color = "#333333"
-                    font_weight = "normal"
+                    bg_color, fg_color, font_weight = c['bg'], "#333333", "normal"
 
                 btn = tk.Button(
                     self.grid_frame,
@@ -231,23 +236,21 @@ class DatePickerPopup:
                     width=3, height=1,
                     cursor="hand2",
                     activebackground=c['day_hover'],
-                    command=lambda d=day: self._select_day(d)
+                    command=lambda d=day: self._select_day(d)  # d=day zachytí správnou hodnotu v cyklu
                 )
                 btn.grid(row=row_idx, column=col_idx, padx=1, pady=1)
 
     def _select_day(self, day):
-        """Vybrat den a zavolat callback."""
+        """Uživatel klikl na den — zavřít kalendář a předat vybrané datum zpět."""
         self.selected_day = day
         date_str = f"{self.year:04d}-{self.month:02d}-{day:02d}"
         self.win.destroy()
         self.callback(date_str)
 
     def _select_today(self):
-        """Přeskočit na dnešní datum."""
+        """Tlačítko Dnes — vybrat dnešní datum a zavřít kalendář."""
         today = datetime.now()
-        self._select_day(today.day) if (today.month == self.month and today.year == self.year) else None
-        # Pokud jsme na jiném měsíci, přepnout a vybrat
-        self.year = today.year
+        self.year  = today.year
         self.month = today.month
         self.selected_day = today.day
         date_str = today.strftime('%Y-%m-%d')
@@ -255,63 +258,67 @@ class DatePickerPopup:
         self.callback(date_str)
 
     def _prev_month(self):
+        """Přejít na předchozí měsíc (leden → prosinec předchozího roku)."""
         if self.month == 1:
             self.month = 12
             self.year -= 1
         else:
             self.month -= 1
-        self.selected_day = min(self.selected_day,
-                                calendar.monthrange(self.year, self.month)[1])
+        # Pokud byl vybraný den 31 a nový měsíc má jen 30 dní, zkrátit na poslední den
+        self.selected_day = min(self.selected_day, calendar.monthrange(self.year, self.month)[1])
         self._render_grid()
 
     def _next_month(self):
+        """Přejít na následující měsíc (prosinec → leden příštího roku)."""
         if self.month == 12:
             self.month = 1
             self.year += 1
         else:
             self.month += 1
-        self.selected_day = min(self.selected_day,
-                                calendar.monthrange(self.year, self.month)[1])
+        self.selected_day = min(self.selected_day, calendar.monthrange(self.year, self.month)[1])
         self._render_grid()
 
     def _prev_year(self):
+        """Přejít o rok zpět."""
         self.year -= 1
-        self.selected_day = min(self.selected_day,
-                                calendar.monthrange(self.year, self.month)[1])
+        self.selected_day = min(self.selected_day, calendar.monthrange(self.year, self.month)[1])
         self._render_grid()
 
     def _next_year(self):
+        """Přejít o rok dopředu."""
         self.year += 1
-        self.selected_day = min(self.selected_day,
-                                calendar.monthrange(self.year, self.month)[1])
+        self.selected_day = min(self.selected_day, calendar.monthrange(self.year, self.month)[1])
         self._render_grid()
 
 
 class DatePickerEntry(tk.Frame):
     """
-    Složený widget: Entry pro datum + tlačítko 📅 pro otevření popup kalendáře.
+    Vstupní pole pro datum s tlačítkem pro otevření kalendáře.
 
-    Náhrada za tkcalendar.DateEntry — bez závislostí, kompatibilní s ttkbootstrap.
+    Nahrazuje tkcalendar.DateEntry — funguje bez externích závislostí
+    a nerozbíjí se při použití ttkbootstrap.
 
-    Použití:
+    Rozhraní je stejné jako u ttk.Entry:
         widget = DatePickerEntry(parent, font=..., width=15)
-        widget.set("2024-03-15")
-        value = widget.get()   # vrátí "RRRR-MM-DD"
-        widget.pack(...)
+        widget.insert(0, "2024-03-15")   # nastavit počáteční hodnotu
+        value = widget.get()             # přečíst aktuální hodnotu (formát RRRR-MM-DD)
+        widget.grid(row=0, column=1)     # umístit do layoutu
     """
 
     def __init__(self, parent, font=None, width=15, **kwargs):
-        # Použít čistý tk.Frame jako kontejner — ttkbootstrap ho nepřepíše
+        # Zjistit barvu pozadí rodiče, aby se Frame vizuálně splynul s okolím
         try:
             bg = parent.cget('background')
         except Exception:
             bg = 'white'
         super().__init__(parent, bg=bg)
 
+        # Textové pole pro ruční zadání data
         self._entry = ttk.Entry(self, font=font, width=width)
         self._entry.pack(side=tk.LEFT)
 
-        # Tlačítko kalendáře — čistý tk.Button, ne ttk (ttkbootstrap ho nepřepíše)
+        # Tlačítko pro otevření kalendáře — záměrně tk.Button (ne ttk),
+        # aby ho ttkbootstrap nepřestyloval a nezpůsobil vizuální problémy
         self._btn = tk.Button(
             self, text="Datum",
             relief=tk.GROOVE,
@@ -324,33 +331,33 @@ class DatePickerEntry(tk.Frame):
         self._btn.pack(side=tk.LEFT, padx=(2, 0))
 
     def _open_picker(self):
-        """Otevřít popup kalendář s aktuální hodnotou jako počátečním datem."""
+        """Otevřít kalendář — předat mu aktuální hodnotu pole jako počáteční datum."""
         current = self._entry.get().strip()
         DatePickerPopup(self._btn, self._set_date, initial_date=current or None)
 
     def _set_date(self, date_str):
-        """Callback z DatePickerPopup — nastavit hodnotu do Entry."""
+        """Zavolá se po výběru data v kalendáři — zapsat datum do textového pole."""
         self._entry.delete(0, tk.END)
         self._entry.insert(0, date_str)
 
     def get(self):
-        """Vrátit aktuální hodnotu (stejné rozhraní jako ttk.Entry)."""
+        """Vrátit aktuální text pole (stejné jako ttk.Entry.get)."""
         return self._entry.get()
 
     def insert(self, index, string):
-        """Vložit text (stejné rozhraní jako ttk.Entry)."""
+        """Vložit text na danou pozici (stejné jako ttk.Entry.insert)."""
         self._entry.insert(index, string)
 
     def delete(self, first, last=None):
-        """Smazat obsah (stejné rozhraní jako ttk.Entry)."""
+        """Smazat obsah pole (stejné jako ttk.Entry.delete)."""
         self._entry.delete(first, last)
 
     def grid(self, **kwargs):
-        """Předat grid() na Frame kontejner."""
+        """Umístit widget pomocí grid layoutu."""
         super().grid(**kwargs)
 
     def pack(self, **kwargs):
-        """Předat pack() na Frame kontejner."""
+        """Umístit widget pomocí pack layoutu."""
         super().pack(**kwargs)
 
 # Pokus o načtení matplotlib pro koláčový graf složení.

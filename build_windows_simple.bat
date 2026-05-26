@@ -62,10 +62,17 @@ pyinstaller --onefile ^
     --hidden-import=matplotlib.backends.backend_tkagg ^
     --hidden-import=reportlab ^
     --hidden-import=reportlab.platypus ^
+    --hidden-import=reportlab.platypus.flowables ^
     --hidden-import=reportlab.lib.pagesizes ^
     --hidden-import=reportlab.lib.styles ^
     --hidden-import=reportlab.lib.units ^
     --hidden-import=reportlab.lib.colors ^
+    --hidden-import=reportlab.lib.enums ^
+    --hidden-import=reportlab.pdfbase ^
+    --hidden-import=reportlab.pdfbase.pdfmetrics ^
+    --hidden-import=reportlab.pdfbase.ttfonts ^
+    --hidden-import=reportlab.pdfgen ^
+    --hidden-import=reportlab.pdfgen.canvas ^
     --collect-all=reportlab ^
     --clean ^
     gui.py

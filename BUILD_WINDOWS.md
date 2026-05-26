@@ -9,7 +9,7 @@
 
 Nebo ručně v příkazovém řádku:
 ```cmd
-pip install pyinstaller ttkbootstrap matplotlib tkcalendar reportlab
+pip install pyinstaller ttkbootstrap matplotlib reportlab
 pyinstaller --onefile --windowed --name="DatabazeBarevu" ^
     --icon="model_logo.ico" ^
     --add-data="model_logo.ico;." ^
@@ -19,10 +19,19 @@ pyinstaller --onefile --windowed --name="DatabazeBarevu" ^
     --hidden-import=ttkbootstrap ^
     --hidden-import=matplotlib ^
     --hidden-import=matplotlib.backends.backend_tkagg ^
-    --hidden-import=tkcalendar ^
-    --hidden-import=babel.numbers ^
     --hidden-import=reportlab ^
-    --collect-all=tkcalendar ^
+    --hidden-import=reportlab.platypus ^
+    --hidden-import=reportlab.platypus.flowables ^
+    --hidden-import=reportlab.lib.pagesizes ^
+    --hidden-import=reportlab.lib.styles ^
+    --hidden-import=reportlab.lib.units ^
+    --hidden-import=reportlab.lib.colors ^
+    --hidden-import=reportlab.lib.enums ^
+    --hidden-import=reportlab.pdfbase ^
+    --hidden-import=reportlab.pdfbase.pdfmetrics ^
+    --hidden-import=reportlab.pdfbase.ttfonts ^
+    --hidden-import=reportlab.pdfgen ^
+    --hidden-import=reportlab.pdfgen.canvas ^
     --collect-all=reportlab ^
     --clean gui.py
 ```
@@ -60,7 +69,7 @@ GitHub Actions automaticky vytvoří Release s EXE ke stažení.
 |---|---|
 | `ttkbootstrap` | Moderní vzhled |
 | `matplotlib` | Koláčový graf |
-| `tkcalendar` | Kalendář pro výběr data |
+| Vlastní kalendář | Výběr data (bez externích závislostí) |
 | `reportlab` | PDF export s českou diakritikou |
 | `fonts/DejaVuSans.ttf` | Font pro PDF (diakritika) |
 | `MODEL_Logo_M.png` | Logo v aplikaci |

@@ -34,7 +34,6 @@ Soubor `dist\DatabazeBarevu.exe` je připraven k použití.
 | `pyinstaller` | Vytvoření EXE |
 | `ttkbootstrap` | Moderní vzhled aplikace |
 | `matplotlib` | Koláčový graf složení |
-| `tkcalendar` | Výběr data kliknutím (kalendář) |
 | `reportlab` | Export do PDF s českou diakritikou |
 
 ---
@@ -57,9 +56,9 @@ Soubor `dist\DatabazeBarevu.exe` je připraven k použití.
 - Historie míchání receptu
 
 **Záložka Filtrování podle data**
-- Kliknutím na pole vyberte datum z kalendáře
-- Zobrazí seznam receptů v daném období
-- Dvojklik na řádek = detail receptu
+- Kliknutím na tlačítko „Datum" vyberte datum z kalendáře, nebo zadejte ručně (formát RRRR-MM-DD nebo DD.MM.RRRR)
+- Zobrazí seznam míchání v daném období (podle data skutečného namíchání)
+- Dvojklik na řádek = detail konkrétního míchání
 
 **Záložka Pokročilé filtrování**
 - Filtr podle data a času
@@ -68,8 +67,8 @@ Soubor `dist\DatabazeBarevu.exe` je připraven k použití.
 - Dvojklik na řádek = detail receptu
 
 **Export výsledků**
-- Tlačítko „Export" v záložce Vyhledávání i Pokročilé filtrování
-- Formáty: TXT, CSV (pro Excel), PDF (s českou diakritikou)
+- Tlačítko „Export" v záložce Vyhledávání, Filtrování podle data i Pokročilé filtrování
+- Formáty: TXT, PDF (s českou diakritikou)
 
 ---
 
