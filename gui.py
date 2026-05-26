@@ -599,7 +599,7 @@ class ColorDatabaseGUI:
         Výsledky jsou seřazeny od nejnovějšího. Dvojklik na řádek přepne na
         záložku Vyhledávání a zobrazí plný detail receptu.
         """
-        input_frame = ttk.LabelFrame(self.date_tab, text="📅 Zadejte rozsah dat")
+        input_frame = ttk.LabelFrame(self.date_tab, text="Zadejte rozsah dat michani")
         input_frame.pack(fill=tk.X, padx=15, pady=10)
 
         inner_input = ttk.Frame(input_frame, padding=15)
@@ -1288,9 +1288,10 @@ class ColorDatabaseGUI:
 
     def filter_by_date(self):
         """
-        Filtrovat recepty podle rozsahu data vytvoření (záložka „Filtrování podle data").
+        Filtrovat záznamy míchání podle data namíchání (záložka „Filtrování podle data").
 
-        Datum se čte z elementu DazeitC (Unix timestamp v milisekundách).
+        Datum se čte z MixDate v DBStatRecipe (kdy byl recept skutečně namíchán),
+        ne z DazeitC (datum vytvoření receptu v databázi).
         Výsledky jsou seřazeny od nejnovějšího.
         """
         if not self.db:
@@ -1298,44 +1299,79 @@ class ColorDatabaseGUI:
             return
         start_str = self.start_date_entry.get().strip()
         end_str = self.end_date_entry.get().strip()
+
+        def parse_date_input(s):
+            if not s:
+                return None
+            for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%d.%m.%y', '%Y/%m/%d', '%d/%m/%Y'):
+                try:
+                    return datetime.strptime(s, fmt)
+                except ValueError:
+                    continue
+            return None
+
         try:
-            start_date = datetime.strptime(start_str, '%Y-%m-%d') if start_str else None
-            end_date = datetime.strptime(end_str, '%Y-%m-%d') if end_str else None
-        except ValueError:
-            messagebox.showerror("Chyba", "Neplatný formát data! Použijte RRRR-MM-DD")
+            start_date = parse_date_input(start_str)
+            end_date   = parse_date_input(end_str)
+            if start_str and start_date is None:
+                raise ValueError(f"Nepodporovaný formát: '{start_str}'")
+            if end_str and end_date is None:
+                raise ValueError(f"Nepodporovaný formát: '{end_str}'")
+            if end_date is not None:
+                end_date = end_date.replace(hour=23, minute=59, second=59)
+        except ValueError as e:
+            messagebox.showerror("Chyba", f"Neplatný formát data!\n{e}\n\nPoužijte RRRR-MM-DD nebo DD.MM.RRRR")
             return
 
         for item in self.date_tree.get_children():
             self.date_tree.delete(item)
 
+        # Předpočítat slovník recipe_pk -> DBRecipe element pro O(1) lookup
+        recipe_by_pk = {r.get('PK'): r for r in self.db['root'].iter('DBRecipe')}
+
         results = []
-        for recipe in self.db['root'].iter('DBRecipe'):
-            date_elem = recipe.find('.//DazeitC[@CLASS="DBDate"]')
-            if date_elem is not None:
-                timestamp = date_elem.get('TIME')
-                if timestamp:
-                    try:
-                        recipe_date = datetime.fromtimestamp(int(timestamp) / 1000.0)
-                        if start_date and recipe_date < start_date:
-                            continue
-                        if end_date and recipe_date > end_date:
-                            continue
-                        results.append((recipe, recipe_date))
-                    except:
-                        continue
+        for stat in self.db['root'].iter('DBStatRecipe'):
+            mix_date_elem = stat.find('.//MixDate[@CLASS="DBDate"]')
+            if mix_date_elem is None:
+                continue
+            timestamp = mix_date_elem.get('TIME')
+            if not timestamp:
+                continue
+            try:
+                mix_date = datetime.fromtimestamp(int(timestamp) / 1000.0)
+            except Exception:
+                continue
 
-        results.sort(key=lambda x: x[1], reverse=True)
+            if start_date and mix_date < start_date:
+                continue
+            if end_date and mix_date > end_date:
+                continue
 
-        for recipe, recipe_date in results:
-            pk = recipe.get('PK', 'N/A')
-            name_elem = recipe.find('.//Name[@CLASS="String"]')
-            name = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
-            amount_elem = recipe.find('.//BezugsMenge[@CLASS="Double"]')
-            amount = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
-            date_str = recipe_date.strftime('%d.%m.%Y %H:%M:%S')
-            self.date_tree.insert('', tk.END, values=(pk, name, amount, date_str), tags=(pk,))
+            # Dohledat DBRecipe přes referenci
+            recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
+            recipe_pk  = recipe_ref.get('PK') if recipe_ref is not None else None
+            recipe     = recipe_by_pk.get(recipe_pk) if recipe_pk else None
 
-        self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů v daném období")
+            name   = 'Neznámý recept'
+            amount = 'N/A'
+            if recipe is not None:
+                name_elem   = recipe.find('.//Name[@CLASS="String"]')
+                amount_elem = recipe.find('.//BezugsMenge[@CLASS="Double"]')
+                name   = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
+                amount = amount_elem.get('VAL', 'N/A')     if amount_elem is not None else 'N/A'
+
+            results.append((stat, recipe, mix_date, name, amount))
+
+        results.sort(key=lambda x: x[2], reverse=True)
+
+        for stat, recipe, mix_date, name, amount in results:
+            stat_pk  = stat.get('PK', 'N/A')
+            date_str = mix_date.strftime('%d.%m.%Y %H:%M:%S')
+            self.date_tree.insert('', tk.END,
+                values=(stat_pk, name, amount, date_str),
+                tags=(stat_pk,))
+
+        self.status_bar.config(text=f"✓ Nalezeno {len(results)} míchání v daném období")
 
     def clear_date_filter(self):
         """Vymazat výsledky v záložce filtrování podle data."""
@@ -1344,18 +1380,25 @@ class ColorDatabaseGUI:
         self.status_bar.config(text="Připraveno")
 
     def show_recipe_detail(self, event):
-        """Dvojklik v tabulce filtrování podle data — přepnout na detail receptu."""
+        """Dvojklik v tabulce filtrování podle data — přepnout na detail konkrétního míchání."""
         selection = self.date_tree.selection()
         if not selection:
             return
         item = self.date_tree.item(selection[0])
-        pk = item['values'][0]
-        for recipe in self.db['root'].iter('DBRecipe'):
-            if recipe.get('PK') == str(pk):
-                self.notebook.select(0)
-                self.result_text.delete(1.0, tk.END)
-                self.display_recipe(recipe)
-                break
+        stat_pk = str(item['values'][0])
+
+        # Najít DBStatRecipe podle PK a zobrazit detail míchání
+        for stat in self.db['root'].iter('DBStatRecipe'):
+            if stat.get('PK') == stat_pk:
+                recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
+                if recipe_ref is not None:
+                    recipe_pk = recipe_ref.get('PK')
+                    for recipe in self.db['root'].iter('DBRecipe'):
+                        if recipe.get('PK') == recipe_pk:
+                            self.notebook.select(0)
+                            self.result_text.delete(1.0, tk.END)
+                            self.display_recipe(recipe, stat)
+                            return
 
     def advanced_filter(self):
         """
@@ -1377,14 +1420,32 @@ class ColorDatabaseGUI:
         try:
             start_datetime = None
             end_datetime   = None
+
+            def parse_date_input(s):
+                if not s:
+                    return None
+                for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%d.%m.%y', '%Y/%m/%d', '%d/%m/%Y'):
+                    try:
+                        return datetime.strptime(s, fmt)
+                    except ValueError:
+                        continue
+                return None
+
             if start_date_str:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                start_date = parse_date_input(start_date_str)
+                if start_date is None:
+                    raise ValueError(f"Nepodporovaný formát data: '{start_date_str}'")
                 start_time = datetime.strptime(start_time_str, '%H:%M').time()
                 start_datetime = datetime.combine(start_date.date(), start_time)
             if end_date_str:
-                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                end_date = parse_date_input(end_date_str)
+                if end_date is None:
+                    raise ValueError(f"Nepodporovaný formát data: '{end_date_str}'")
                 end_time = datetime.strptime(end_time_str, '%H:%M').time()
                 end_datetime = datetime.combine(end_date.date(), end_time)
+                # Pokud je cas "23:59", zahrnout i sekundy 00-59 tohoto minuty
+                if end_time.hour == 23 and end_time.minute == 59:
+                    end_datetime = end_datetime.replace(second=59)
         except ValueError as e:
             messagebox.showerror("Chyba", f"Neplatný formát data nebo času!\n{e}")
             return
@@ -1394,26 +1455,37 @@ class ColorDatabaseGUI:
 
         results = []
 
-        for recipe in self.db['root'].iter('DBRecipe'):
-            date_elem = recipe.find('.//DazeitC[@CLASS="DBDate"]')
-            if date_elem is None:
+        # Předpočítat slovník recipe_pk -> DBRecipe pro O(1) lookup
+        recipe_by_pk = {r.get('PK'): r for r in self.db['root'].iter('DBRecipe')}
+
+        # Iterovat přes DBStatRecipe — každý záznam = jedno skutečné míchání
+        for stat in self.db['root'].iter('DBStatRecipe'):
+            mix_date_elem = stat.find('.//MixDate[@CLASS="DBDate"]')
+            if mix_date_elem is None:
                 continue
-            timestamp = date_elem.get('TIME')
+            timestamp = mix_date_elem.get('TIME')
             if not timestamp:
                 continue
             try:
-                recipe_datetime = datetime.fromtimestamp(int(timestamp) / 1000.0)
-            except:
+                mix_datetime = datetime.fromtimestamp(int(timestamp) / 1000.0)
+            except Exception:
                 continue
 
-            if start_datetime and recipe_datetime < start_datetime:
+            if start_datetime and mix_datetime < start_datetime:
                 continue
-            if end_datetime and recipe_datetime > end_datetime:
+            if end_datetime and mix_datetime > end_datetime:
                 continue
 
-            recipe_pk = recipe.get('PK')
+            # Dohledat DBRecipe
+            recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
+            if recipe_ref is None:
+                continue
+            recipe_pk = recipe_ref.get('PK')
+            recipe    = recipe_by_pk.get(recipe_pk)
+            if recipe is None:
+                continue
 
-            # Filtr ventilu — O(1) lookup
+            # Filtr ventilu — O(1) lookup přes recipe_pk
             if valve_str:
                 if valve_str not in self._recipe_valves.get(recipe_pk, []):
                     continue
@@ -1424,26 +1496,26 @@ class ColorDatabaseGUI:
                 if not any(color_str in c.lower() for c in colors):
                     continue
 
-            results.append((recipe, recipe_datetime))
+            results.append((stat, recipe, recipe_pk, mix_datetime))
 
-        results.sort(key=lambda x: x[1], reverse=True)
+        results.sort(key=lambda x: x[3], reverse=True)
 
-        for recipe, recipe_datetime in results:
-            pk        = recipe.get('PK', 'N/A')
-            name_elem = recipe.find('.//Name[@CLASS="String"]')
-            name      = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
+        for stat, recipe, recipe_pk, mix_datetime in results:
+            stat_pk     = stat.get('PK', 'N/A')
+            name_elem   = recipe.find('.//Name[@CLASS="String"]')
+            name        = name_elem.get('VAL', 'Bez názvu') if name_elem is not None else 'Bez názvu'
             amount_elem = recipe.find('.//BezugsMenge[@CLASS="Double"]')
-            amount    = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
-            date_str  = recipe_datetime.strftime('%d.%m.%Y')
-            time_str  = recipe_datetime.strftime('%H:%M:%S')
-            valves    = self._recipe_valves.get(pk, [])
-            charges   = self._recipe_charges.get(pk, [])
+            amount      = amount_elem.get('VAL', 'N/A') if amount_elem is not None else 'N/A'
+            date_str    = mix_datetime.strftime('%d.%m.%Y')
+            time_str    = mix_datetime.strftime('%H:%M:%S')
+            valves      = self._recipe_valves.get(recipe_pk, [])
+            charges     = self._recipe_charges.get(recipe_pk, [])
             self.adv_tree.insert('', tk.END,
-                values=(pk, name, amount, date_str, time_str,
+                values=(stat_pk, name, amount, date_str, time_str,
                         ', '.join(sorted(valves)), ', '.join(charges)),
-                tags=(pk,))
+                tags=(stat_pk,))
 
-        self.status_bar.config(text=f"✓ Nalezeno {len(results)} receptů")
+        self.status_bar.config(text=f"✓ Nalezeno {len(results)} míchání")
 
     def get_recipe_valves(self, recipe_pk):
         """Vrátit seřazený seznam čísel ventilů pro daný recept (z lookup tabulky)."""
@@ -1469,13 +1541,19 @@ class ColorDatabaseGUI:
         if not selection:
             return
         item = self.adv_tree.item(selection[0])
-        pk = str(item['values'][0])
-        for recipe in self.db['root'].iter('DBRecipe'):
-            if recipe.get('PK') == pk:
-                self.notebook.select(0)
-                self.result_text.delete(1.0, tk.END)
-                self.display_recipe(recipe, None)
-                break
+        stat_pk = str(item['values'][0])
+        # Najít DBStatRecipe podle PK a zobrazit detail konkrétního míchání
+        for stat in self.db['root'].iter('DBStatRecipe'):
+            if stat.get('PK') == stat_pk:
+                recipe_ref = stat.find('.//Recipe[@CLASS="DBRef"]')
+                if recipe_ref is not None:
+                    recipe_pk = recipe_ref.get('PK')
+                    for recipe in self.db['root'].iter('DBRecipe'):
+                        if recipe.get('PK') == recipe_pk:
+                            self.notebook.select(0)
+                            self.result_text.delete(1.0, tk.END)
+                            self.display_recipe(recipe, stat)
+                            return
 
     def export_results(self, source):
         """
