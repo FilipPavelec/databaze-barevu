@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller==6.11.1 ttkbootstrap==1.10.0 matplotlib==3.9.4 tkcalendar reportlab
+        pip install pyinstaller==6.11.1 ttkbootstrap==1.10.0 matplotlib==3.9.4 reportlab
 
     - name: Build EXE
       run: |
@@ -39,15 +39,19 @@ jobs:
           --hidden-import=ttkbootstrap `
           --hidden-import=matplotlib `
           --hidden-import=matplotlib.backends.backend_tkagg `
-          --hidden-import=tkcalendar `
-          --hidden-import=babel.numbers `
           --hidden-import=reportlab `
           --hidden-import=reportlab.platypus `
+          --hidden-import=reportlab.platypus.flowables `
           --hidden-import=reportlab.lib.pagesizes `
           --hidden-import=reportlab.lib.styles `
           --hidden-import=reportlab.lib.units `
           --hidden-import=reportlab.lib.colors `
-          --collect-all=tkcalendar `
+          --hidden-import=reportlab.lib.enums `
+          --hidden-import=reportlab.pdfbase `
+          --hidden-import=reportlab.pdfbase.pdfmetrics `
+          --hidden-import=reportlab.pdfbase.ttfonts `
+          --hidden-import=reportlab.pdfgen `
+          --hidden-import=reportlab.pdfgen.canvas `
           --collect-all=reportlab `
           --clean `
           gui.py
@@ -68,6 +72,13 @@ jobs:
         name: "Databáze barev ${{ github.ref_name }}"
         body: |
           ## Databáze barev ${{ github.ref_name }}
+
+          ### Co je nového
+          - **Vlastní kalendář** — výběr data kliknutím bez závislosti na tkcalendar (plná kompatibilita s ttkbootstrap)
+          - **Oprava exportu CSV a PDF** — export z Pokročilého filtrování a Filtrování podle data nyní funguje správně
+          - **Export ve všech záložkách** — tlačítko Export přidáno i do záložky Filtrování podle data
+          - **Oprava PDF v EXE** — reportlab správně zahrnut do Windows buildu
+          - **Lepší chybové hlášky** — export zobrazí počet řádků a srozumitelnou chybu při selhání
 
           ### Stažení
           Stáhněte `DatabazeBarevu.exe` níže — nevyžaduje instalaci Pythonu.

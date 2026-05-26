@@ -31,7 +31,7 @@ REM Instalace zavislosti
 echo Instaluji zavislosti...
 echo.
 python -m pip install --upgrade pip
-pip install pyinstaller ttkbootstrap matplotlib tkcalendar reportlab
+pip install pyinstaller ttkbootstrap matplotlib reportlab
 
 if errorlevel 1 (
     echo.
@@ -60,15 +60,12 @@ pyinstaller --onefile ^
     --hidden-import=ttkbootstrap ^
     --hidden-import=matplotlib ^
     --hidden-import=matplotlib.backends.backend_tkagg ^
-    --hidden-import=tkcalendar ^
-    --hidden-import=babel.numbers ^
     --hidden-import=reportlab ^
     --hidden-import=reportlab.platypus ^
     --hidden-import=reportlab.lib.pagesizes ^
     --hidden-import=reportlab.lib.styles ^
     --hidden-import=reportlab.lib.units ^
     --hidden-import=reportlab.lib.colors ^
-    --collect-all=tkcalendar ^
     --collect-all=reportlab ^
     --clean ^
     gui.py

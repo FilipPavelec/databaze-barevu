@@ -47,7 +47,7 @@ Všechny závislosti jsou zabaleny přímo v EXE — na cílovém počítači ne
 |---|---|
 | `ttkbootstrap` | Moderní vzhled |
 | `matplotlib` | Koláčový graf složení |
-| `tkcalendar` | Výběr data kliknutím z kalendáře |
+| Vlastní kalendář | Výběr data kliknutím (bez závislostí, kompatibilní s ttkbootstrap) |
 | `reportlab` + DejaVuSans | Export do PDF s českou diakritikou |
 
 ---
