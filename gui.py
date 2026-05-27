@@ -1509,6 +1509,38 @@ class ColorDatabaseGUI:
 
         results = []
 
+        # Pokud je zadán filtr barvy, předem sestavit množinu recipe_pk
+        # které danou barvu obsahují. Hledáme podle názvu barvy (DBBaseColor.Name):
+        #   - "Violet 15"  → přesný název
+        #   - "15"         → číslo v názvu (najde "Violet 15", "Blue 15" atd.)
+        #   - "624"        → barva pojmenovaná čistým číslem "624"
+        # Tím se vyhneme závislosti na předpočítaném slovníku a filtr je spolehlivý.
+        matching_recipe_pks = None  # None = filtr barvy není aktivní
+        if color_str:
+            # Krok 1: najít PK všech barev jejichž název obsahuje hledaný text
+            matching_bc_pks = set()
+            for bc in self.db['root'].iter('DBBaseColor'):
+                name_elem = bc.find('.//Name[@CLASS="String"]')
+                if name_elem is None:
+                    continue
+                bc_name = name_elem.get('VAL', '').strip().lower()
+                if color_str in bc_name:
+                    matching_bc_pks.add(bc.get('PK'))
+
+            # Krok 2: najít všechny recipe_pk které tyto barvy používají (přes DBLine)
+            matching_recipe_pks = set()
+            for line in self.db['root'].iter('DBLine'):
+                bc_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
+                if bc_ref is None or bc_ref.get('PK') not in matching_bc_pks:
+                    continue
+                recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
+                if recipe_ref is not None:
+                    matching_recipe_pks.add(recipe_ref.get('PK'))
+
+            if not matching_recipe_pks:
+                self.status_bar.config(text=f"Barva '{self.adv_color.get().strip()}' nenalezena v žádném receptu")
+                return
+
         # Předpočítat slovník recipe_pk -> DBRecipe pro O(1) lookup
         recipe_by_pk = {r.get('PK'): r for r in self.db['root'].iter('DBRecipe')}
 
@@ -1544,12 +1576,9 @@ class ColorDatabaseGUI:
                 if valve_str not in self._recipe_valves.get(recipe_pk, []):
                     continue
 
-            # Filtr barvy — hledá podle PK barvy (přesná shoda) nebo názvu (podřetězec).
-            # Příklady: "14" najde barvu s PK=14, "Blue" najde "Blue 17", "Dark Blue 63" atd.
-            if color_str:
-                colors = self._recipe_colors.get(recipe_pk, [])
-                if not any(color_str == c.strip().lower() or color_str in c.strip().lower()
-                           for c in colors):
+            # Filtr barvy — zkontrolovat jestli recept je v předem sestavené množině
+            if matching_recipe_pks is not None:
+                if recipe_pk not in matching_recipe_pks:
                     continue
 
             results.append((stat, recipe, recipe_pk, mix_datetime))
