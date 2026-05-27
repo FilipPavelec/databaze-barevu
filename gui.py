@@ -931,17 +931,12 @@ class ColorDatabaseGUI:
                 if charge and charge not in recipe_charges[r_pk]:
                     recipe_charges[r_pk].append(charge)
 
-            # Přidat název barvy a PK barvy do seznamu pro vyhledávání.
-            # Ukládáme název (např. "Blue 17") i PK záznamu barvy (číslo v databázi)
-            # aby filtr fungoval při zadání čísla i názvu.
+            # Přidat název barvy — strip() odstraní případné mezery na konci
             name_elem = bc.find('.//Name[@CLASS="String"]')
             if name_elem is not None:
-                color_name = name_elem.get('VAL', '')
+                color_name = name_elem.get('VAL', '').strip()
                 if color_name and color_name not in recipe_colors[r_pk]:
                     recipe_colors[r_pk].append(color_name)
-            # Přidat také PK barvy jako prohledávatelný řetězec
-            if bc_pk and bc_pk not in recipe_colors[r_pk]:
-                recipe_colors[r_pk].append(bc_pk)
 
         # Převést defaultdict na obyčejný dict — čistší a mírně rychlejší při čtení
         self._recipe_valves   = dict(recipe_valves)
@@ -1545,30 +1540,14 @@ class ColorDatabaseGUI:
                 if valve_str not in self._recipe_valves.get(recipe_pk, []):
                     continue
 
-            # Filtr barvy — hledá zadaný text v názvu barvy nebo PK barvy.
-            # Porovnání je case-insensitive a hledá shodu celého slova nebo čísla,
-            # aby např. "48" nenašlo "148" nebo "480".
+            # Filtr barvy — hledá zadaný text v názvu barvy.
+            # Porovnání je case-insensitive. Funguje pro:
+            #   - přesný název:  "Blue 17"  → najde recepty s barvou "Blue 17"
+            #   - číslo v názvu: "17"       → najde "Blue 17", "Yellow 17" atd.
+            #   - čisté číslo:   "501"      → najde barvu pojmenovanou "501"
             if color_str:
                 colors = self._recipe_colors.get(recipe_pk, [])
-                found = False
-                for c in colors:
-                    c_lower = c.lower()
-                    # Přesná shoda (pro čísla jako PK)
-                    if c_lower == color_str:
-                        found = True
-                        break
-                    # Shoda jako podřetězec oddělený mezerou nebo na konci/začátku
-                    # např. "48" najde "Transparentwhite 48" ale ne "148"
-                    if color_str in c_lower:
-                        # Ověřit že jde o celé slovo (předchází mezera nebo začátek)
-                        idx = c_lower.find(color_str)
-                        before = c_lower[idx - 1] if idx > 0 else ' '
-                        after_idx = idx + len(color_str)
-                        after = c_lower[after_idx] if after_idx < len(c_lower) else ' '
-                        if not before.isdigit() and not after.isdigit():
-                            found = True
-                            break
-                if not found:
+                if not any(color_str in c.strip().lower() for c in colors):
                     continue
 
             results.append((stat, recipe, recipe_pk, mix_datetime))
