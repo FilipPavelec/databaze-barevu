@@ -749,12 +749,12 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").grid(
             row=5, column=1, sticky=tk.W, padx=5, pady=0)
 
-        ttk.Label(inner_filter, text="🎨 Barva (název nebo číslo):", font=self.font_ui_bold).grid(
+        ttk.Label(inner_filter, text="🎨 Barva (PK nebo název):", font=self.font_ui_bold).grid(
             row=6, column=0, sticky=tk.W, padx=5, pady=5)
         self.adv_color = ttk.Entry(inner_filter, font=self.font_ui, width=20)
         self.adv_color.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
 
-        ttk.Label(inner_filter, text="(Např. '48', 'Transparent', 'Blue 17')",
+        ttk.Label(inner_filter, text="(Např. '14' = PK barvy, 'Blue 17' = název)",
                   font=self.font_ui_sm, foreground="gray").grid(
             row=7, column=1, sticky=tk.W, padx=5, pady=0)
 
@@ -931,12 +931,16 @@ class ColorDatabaseGUI:
                 if charge and charge not in recipe_charges[r_pk]:
                     recipe_charges[r_pk].append(charge)
 
-            # Přidat název barvy — strip() odstraní případné mezery na konci
+            # Přidat název barvy a PK barvy — strip() odstraní případné mezery na konci.
+            # Ukládáme obojí aby filtr fungoval jak pro název ("Blue 17") tak pro PK ("14").
             name_elem = bc.find('.//Name[@CLASS="String"]')
             if name_elem is not None:
                 color_name = name_elem.get('VAL', '').strip()
                 if color_name and color_name not in recipe_colors[r_pk]:
                     recipe_colors[r_pk].append(color_name)
+            # PK barvy jako samostatný prohledávatelný řetězec
+            if bc_pk and bc_pk not in recipe_colors[r_pk]:
+                recipe_colors[r_pk].append(bc_pk)
 
         # Převést defaultdict na obyčejný dict — čistší a mírně rychlejší při čtení
         self._recipe_valves   = dict(recipe_valves)
@@ -1540,14 +1544,12 @@ class ColorDatabaseGUI:
                 if valve_str not in self._recipe_valves.get(recipe_pk, []):
                     continue
 
-            # Filtr barvy — hledá zadaný text v názvu barvy.
-            # Porovnání je case-insensitive. Funguje pro:
-            #   - přesný název:  "Blue 17"  → najde recepty s barvou "Blue 17"
-            #   - číslo v názvu: "17"       → najde "Blue 17", "Yellow 17" atd.
-            #   - čisté číslo:   "501"      → najde barvu pojmenovanou "501"
+            # Filtr barvy — hledá podle PK barvy (přesná shoda) nebo názvu (podřetězec).
+            # Příklady: "14" najde barvu s PK=14, "Blue" najde "Blue 17", "Dark Blue 63" atd.
             if color_str:
                 colors = self._recipe_colors.get(recipe_pk, [])
-                if not any(color_str in c.strip().lower() for c in colors):
+                if not any(color_str == c.strip().lower() or color_str in c.strip().lower()
+                           for c in colors):
                     continue
 
             results.append((stat, recipe, recipe_pk, mix_datetime))
