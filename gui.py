@@ -1150,7 +1150,7 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"   -čas nadávkování:    {mix_time}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 10000:.4f} kg\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 100000:.4f} kg\n\n", "ing_detail")
 
         else:
             # Složení ze statického receptu (DBLine) — použij lookup tabulku
@@ -1184,11 +1184,11 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value / 10000:.4f} kg\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value / 100000:.4f} kg\n\n", "ing_detail")
 
         if lines:
             self.result_text.insert(tk.END, f"{'─' * 60}\n")
-            self.result_text.insert(tk.END, f"CELKEM: {total / 10000:.4f} kg\n\n", "total")
+            self.result_text.insert(tk.END, f"CELKEM: {total / 100000:.4f} kg\n\n", "total")
 
         self.display_recipe_history(recipe_pk, name)
 
