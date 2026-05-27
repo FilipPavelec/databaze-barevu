@@ -401,16 +401,24 @@ class ColorDatabaseGUI:
 
     def _setup_fonts(self):
         """
-        Vybrat fonty dostupné v aktuálním systému.
+        Nastavit fonty pro celou aplikaci podle toho, co je v systému k dispozici.
 
-        Tkinter na Linuxu vidí jen X11 fonty (ne TrueType přímo).
-        Proto procházíme seznam kandidátů a vezmeme první dostupný,
-        aby se předešlo fallbacku na font bez podpory diakritiky.
+        Tkinter na Linuxu nevidí přímo soubory fontů — pracuje jen s fonty
+        registrovanými v X11. Proto procházíme seznam preferovaných fontů
+        a vezmeme první, který systém zná. Tím se vyhneme situaci, kdy by
+        aplikace použila záložný font bez podpory české diakritiky.
+
+        Nastavují se čtyři skupiny fontů:
+          - font_ui / font_ui_bold / font_ui_big / font_ui_sm  — pro popisky a tlačítka
+          - font_mono / font_mono_sm                           — pro detail receptu (zarovnání)
+          - font_entry                                         — pro velké vstupní pole skeneru
         """
         import tkinter.font as tkfont
         available = set(tkfont.families())
 
-        # Proporcionální font pro popisky, tlačítka a vstupní pole
+        # Proporcionální font pro popisky, tlačítka a vstupní pole.
+        # Preferujeme Ubuntu nebo Nimbus Sans — oba mají dobrou podporu diakritiky.
+        # Pokud ani jeden není dostupný, použijeme TkDefaultFont (zabudovaný v tkinter).
         for candidate in ("Ubuntu", "nimbus sans l", "helvetica", "TkDefaultFont"):
             if candidate in available or candidate.startswith("Tk"):
                 self.font_ui      = (candidate, 12)           # běžný text
@@ -419,25 +427,35 @@ class ColorDatabaseGUI:
                 self.font_ui_sm   = (candidate, 10, "italic") # nápovědy
                 break
 
-        # Monospace font pro detail receptu (zarovnání sloupců)
+        # Monospace (neproporcionální) font pro detail receptu.
+        # Neproporcionální font zajistí, že se sloupce s hodnotami zarovnají pod sebe.
         for candidate in ("courier 10 pitch", "nimbus mono l", "courier", "TkFixedFont"):
             if candidate in available or candidate.startswith("Tk"):
                 self.font_mono    = (candidate, 12)  # složení receptu
                 self.font_mono_sm = (candidate, 11)  # historie míchání
                 break
 
-        # Velký font pro vstupní pole skeneru čárových kódů
+        # Velký font pro vstupní pole skeneru čárových kódů.
+        # Větší velikost usnadňuje čtení naskenovaného kódu na první pohled.
         self.font_entry = (self.font_ui[0], 18)
 
     def setup_ui(self):
         """
-        Sestavit hlavní okno aplikace.
+        Sestavit celé hlavní okno aplikace a rozmístit všechny části.
 
-        Struktura:
-          - Horní lišta: logo Model Group + název souboru + tlačítko Načíst
-          - Branding lišta: Model Obaly Hostinné
-          - Notebook se třemi záložkami: Vyhledávání / Filtrování podle data / Pokročilé filtrování
-          - Stavový řádek dole
+        Okno se skládá z těchto sekcí (shora dolů):
+          1. Horní lišta — logo Model Group, název načteného souboru, tlačítko Načíst soubor
+          2. Oddělovač
+          3. Branding lišta — název závodu a skupiny
+          4. Oddělovač
+          5. Záložkový panel (Notebook) se třemi záložkami:
+               - Vyhledávání podle kódu
+               - Filtrování podle data
+               - Pokročilé filtrování
+          6. Stavový řádek dole — zobrazuje aktuální stav (načteno, hledám, chyba...)
+
+        Pokud je nainstalován ttkbootstrap, použijí se barevná tlačítka a moderní styl.
+        Bez ttkbootstrap aplikace funguje se standardním šedým vzhledem tkinter.
         """
         # Nastavit ikonu okna (model_logo.ico pokud existuje)
         ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_logo.ico")
@@ -599,11 +617,14 @@ class ColorDatabaseGUI:
 
     def setup_date_tab(self):
         """
-        Záložka „Filtrování podle data".
+        Sestavit záložku „Filtrování podle data".
 
-        Umožňuje zobrazit všechny recepty vytvořené v zadaném časovém rozsahu.
-        Výsledky jsou seřazeny od nejnovějšího. Dvojklik na řádek přepne na
-        záložku Vyhledávání a zobrazí plný detail receptu.
+        Uživatel zadá rozsah dat (od–do) a aplikace zobrazí všechna míchání
+        která proběhla v tomto období. Datum se porovnává s MixDate v DBStatRecipe
+        — tedy s datem kdy byl recept skutečně namíchán, ne kdy byl vytvořen.
+
+        Výsledky jsou seřazeny od nejnovějšího. Dvojklik na řádek otevře
+        detail konkrétního míchání na záložce Vyhledávání.
         """
         input_frame = ttk.LabelFrame(self.date_tab, text="Zadejte rozsah dat michani")
         input_frame.pack(fill=tk.X, padx=15, pady=10)
@@ -674,16 +695,19 @@ class ColorDatabaseGUI:
 
     def setup_advanced_tab(self):
         """
-        Záložka „Pokročilé filtrování".
+        Sestavit záložku „Pokročilé filtrování".
 
-        Kombinuje více filtrů najednou:
-          - Rozsah data a času vytvoření receptu
-          - Číslo ventilu (zobrazí jen recepty, které daný ventil používají)
-        Výsledky obsahují sloupec Šarže — čísla šarží všech složek receptu.
-        Dvojklik zobrazí plný detail na záložce Vyhledávání.
+        Umožňuje kombinovat více filtrů najednou:
+          - Rozsah data a času míchání (od–do)
+          - Číslo ventilu — zobrazí jen míchání kde byl použit daný ventil
+          - Název nebo číslo barvy — zobrazí jen míchání kde byla použita daná barva
 
-        Výkon: filtrování je rychlé díky lookup tabulkám předpočítaným
-        při načtení souboru (viz _build_lookup_tables).
+        Výsledky obsahují sloupce: PK míchání, název receptu, množství,
+        datum, čas, použité ventily a šarže.
+        Dvojklik na řádek otevře detail konkrétního míchání na záložce Vyhledávání.
+
+        Filtrování je rychlé díky slovníkům předpočítaným při načtení souboru
+        (viz _build_lookup_tables) — každý recept se prohledá v čase O(1).
         """
         filter_frame = ttk.LabelFrame(self.advanced_tab, text="⚙️ Filtry")
         filter_frame.pack(fill=tk.X, padx=15, pady=10)
@@ -790,7 +814,7 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").pack(pady=5)
 
     def browse_file(self):
-        """Otevřít dialog pro výběr XML souboru a načíst databázi."""
+        """Otevřít dialogové okno pro výběr XML souboru a předat cestu metodě load_database."""
         filename = filedialog.askopenfilename(
             title="Vyberte XML soubor",
             filetypes=[("XML soubory", "*.xml *.XML"), ("Všechny soubory", "*.*")]
@@ -800,10 +824,15 @@ class ColorDatabaseGUI:
 
     def load_database(self, filepath):
         """
-        Načíst XML soubor a připravit databázi.
+        Načíst XML soubor z disku a připravit databázi pro vyhledávání.
 
-        Po úspěšném načtení zavolá _build_lookup_tables() pro předpočítání
-        slovníků ventilů a šarží — to zajistí rychlé pokročilé filtrování.
+        XML se naparsuje do stromové struktury (ElementTree) a uloží do self.db.
+        Hned po načtení se zavolá _build_lookup_tables() která jednou projde
+        celý XML a sestaví slovníky pro rychlé filtrování — bez toho by
+        pokročilé filtrování trvalo desítky sekund.
+
+        Pokud soubor nelze načíst (poškozený XML, chybná cesta...), zobrazí
+        chybovou hlášku a ponechá předchozí databázi beze změny.
         """
         try:
             tree = ET.parse(filepath)
@@ -832,34 +861,44 @@ class ColorDatabaseGUI:
 
     def _build_lookup_tables(self, root):
         """
-        Předpočítat lookup tabulky jednou při načtení souboru.
+        Jednou projít celý XML a sestavit slovníky pro rychlé filtrování.
 
-        Problém bez tabulek: pokročilé filtrování pro každý recept iteruje
-        přes všechny DBLine (1993) a DBBaseColor (22) → O(n²) → ~17 sekund zaseknutí.
+        Proč je to potřeba:
+          Bez slovníků by pokročilé filtrování muselo pro každý recept
+          projít všechny řádky složení (DBLine) a všechny základní barvy
+          (DBBaseColor) — to je tisíce operací pro každý recept → aplikace
+          by se na několik sekund zasekla.
 
-        Řešení: projdeme XML jednou a sestavíme slovníky:
-          _basecolor_by_pk  — PK → DBBaseColor element          (O(1) lookup)
-          _recipe_valves    — recipe_pk → [čísla ventilů]
-          _recipe_charges   — recipe_pk → [čísla šarží]
+        Co se sestaví:
+          _basecolor_by_pk   — slovník PK → DBBaseColor element
+                               (rychlé dohledání barvy podle jejího čísla)
+          _recipe_valves     — slovník PK receptu → seznam čísel ventilů
+          _recipe_charges    — slovník PK receptu → seznam čísel šarží
+          _recipe_colors     — slovník PK receptu → seznam názvů barev
+          _lines_by_recipe   — slovník PK receptu → seznam DBLine elementů
 
-        Filtrování pak trvá ~20ms místo 17 sekund.
+        Po sestavení trvá filtrování ~20ms místo původních ~17 sekund.
         """
         from collections import defaultdict
 
-        # Krok 1: slovník PK → DBBaseColor element pro O(1) přístup
+        # Projít všechny základní barvy a uložit je do slovníku podle PK.
+        # PK je unikátní číslo každé barvy v XML — slouží jako klíč pro dohledání.
         self._basecolor_by_pk = {}
         for bc in root.iter('DBBaseColor'):
             pk = bc.get('PK')
             if pk:
                 self._basecolor_by_pk[pk] = bc
 
-        # Krok 2: pro každý recept sestavit seznam ventilů, šarží, názvů barev a DBLine z DBLine
-        recipe_valves  = defaultdict(list)   # recipe_pk -> [číslo ventilu, ...]
-        recipe_charges = defaultdict(list)   # recipe_pk -> [šarže, ...]
-        recipe_colors  = defaultdict(list)   # recipe_pk -> [název barvy, ...]
-        lines_by_recipe = defaultdict(list)  # recipe_pk -> [DBLine element, ...]
+        # Projít všechny řádky složení (DBLine) a pro každý recept
+        # sestavit seznam ventilů, šarží a názvů barev.
+        # defaultdict(list) automaticky vytvoří prázdný seznam pro nový klíč.
+        recipe_valves   = defaultdict(list)  # PK receptu → [číslo ventilu, ...]
+        recipe_charges  = defaultdict(list)  # PK receptu → [šarže, ...]
+        recipe_colors   = defaultdict(list)  # PK receptu → [název barvy, ...]
+        lines_by_recipe = defaultdict(list)  # PK receptu → [DBLine element, ...]
 
         for line in root.iter('DBLine'):
+            # Každý DBLine odkazuje na recept přes Recipe[@CLASS="DBRef"]
             recipe_ref = line.find('.//Recipe[@CLASS="DBRef"]')
             if recipe_ref is None:
                 continue
@@ -869,6 +908,7 @@ class ColorDatabaseGUI:
 
             lines_by_recipe[r_pk].append(line)
 
+            # Dohledat základní barvu tohoto řádku
             basecolor_ref = line.find('.//BaseColor[@CLASS="DBRef"]')
             if basecolor_ref is None:
                 continue
@@ -877,35 +917,39 @@ class ColorDatabaseGUI:
             if bc is None:
                 continue
 
+            # Přidat číslo ventilu (pokud ještě není v seznamu pro tento recept)
             valve_elem = bc.find('.//ValveNr[@CLASS="Integer"]')
             if valve_elem is not None:
                 valve = valve_elem.get('VAL', '')
                 if valve and valve not in recipe_valves[r_pk]:
                     recipe_valves[r_pk].append(valve)
 
+            # Přidat číslo šarže
             charge_elem = bc.find('.//Charge[@CLASS="String"]')
             if charge_elem is not None:
                 charge = charge_elem.get('VAL', '')
                 if charge and charge not in recipe_charges[r_pk]:
                     recipe_charges[r_pk].append(charge)
 
+            # Přidat název barvy
             name_elem = bc.find('.//Name[@CLASS="String"]')
             if name_elem is not None:
                 color_name = name_elem.get('VAL', '')
                 if color_name and color_name not in recipe_colors[r_pk]:
                     recipe_colors[r_pk].append(color_name)
 
-        self._recipe_valves    = dict(recipe_valves)
-        self._recipe_charges   = dict(recipe_charges)
-        self._recipe_colors    = dict(recipe_colors)
-        self._lines_by_recipe  = dict(lines_by_recipe)
+        # Převést defaultdict na obyčejný dict — čistší a mírně rychlejší při čtení
+        self._recipe_valves   = dict(recipe_valves)
+        self._recipe_charges  = dict(recipe_charges)
+        self._recipe_colors   = dict(recipe_colors)
+        self._lines_by_recipe = dict(lines_by_recipe)
 
     def search_barcode(self):
         """
-        Zpracovat vstup z pole skeneru a spustit vyhledávání.
+        Přečíst obsah vstupního pole, vyhledat recept a zobrazit výsledek.
 
-        Po vyhledání vymaže vstupní pole a vrátí focus — připraveno
-        pro okamžité naskenování dalšího kódu.
+        Po zobrazení výsledku se pole automaticky vymaže a focus se vrátí
+        zpět do pole — obsluha může okamžitě skenovat další kód bez klikání.
         """
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
@@ -1106,7 +1150,7 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"   -čas nadávkování:    {mix_time}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 1000:.3f} kg\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -skutečná hmotnost:  {value / 10000:.4f} kg\n\n", "ing_detail")
 
         else:
             # Složení ze statického receptu (DBLine) — použij lookup tabulku
@@ -1140,11 +1184,11 @@ class ColorDatabaseGUI:
                 self.result_text.insert(tk.END, f"{i}. {bc_name}\n", "ing_name")
                 self.result_text.insert(tk.END, f"   -ventil:             {bc_valve}\n", "ing_detail")
                 self.result_text.insert(tk.END, f"   -šarže:              {bc_charge}\n", "ing_detail")
-                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value / 1000:.3f} kg\n\n", "ing_detail")
+                self.result_text.insert(tk.END, f"   -ref. hmotnost:      {value / 10000:.4f} kg\n\n", "ing_detail")
 
         if lines:
             self.result_text.insert(tk.END, f"{'─' * 60}\n")
-            self.result_text.insert(tk.END, f"CELKEM: {total / 1000:.3f} kg\n\n", "total")
+            self.result_text.insert(tk.END, f"CELKEM: {total / 10000:.4f} kg\n\n", "total")
 
         self.display_recipe_history(recipe_pk, name)
 
