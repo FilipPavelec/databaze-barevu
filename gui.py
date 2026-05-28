@@ -360,6 +360,118 @@ class DatePickerEntry(tk.Frame):
         """Umístit widget pomocí pack layoutu."""
         super().pack(**kwargs)
 
+
+class ColorPickerPopup:
+    """
+    Vyskakovací okno pro výběr barvy ze seznamu.
+
+    Zobrazí všechny barvy načtené z databáze. Obsahuje vyhledávací pole
+    pro rychlé filtrování — stačí napsat část názvu a seznam se zúží.
+    Kliknutím na barvu se název zapíše do pole filtru a okno se zavře.
+    """
+
+    def __init__(self, parent, color_names, callback):
+        """
+        parent      — widget pod kterým se popup otevře
+        color_names — seřazený seznam názvů barev (stringy)
+        callback    — funkce(název_barvy) zavolaná po výběru
+        """
+        self.callback    = callback
+        self.all_colors  = color_names
+
+        self.win = tk.Toplevel(parent)
+        self.win.title("Vyberte barvu")
+        self.win.resizable(False, True)
+        self.win.grab_set()
+        self.win.transient(parent)
+
+        # Umístit popup pod tlačítko
+        parent.update_idletasks()
+        x = parent.winfo_rootx()
+        y = parent.winfo_rooty() + parent.winfo_height()
+        self.win.geometry(f"280x320+{x}+{y}")
+
+        self._build_ui()
+
+    def _build_ui(self):
+        bg = "#ffffff"
+        self.win.configure(bg=bg)
+
+        # ── Vyhledávací pole ─────────────────────────────────────────
+        search_frame = tk.Frame(self.win, bg="#2c6fad", pady=6, padx=8)
+        search_frame.pack(fill=tk.X)
+
+        tk.Label(search_frame, text="Hledat barvu:", bg="#2c6fad", fg="white",
+                 font=("TkDefaultFont", 9, "bold")).pack(anchor=tk.W)
+
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add('write', self._on_search)
+        search_entry = tk.Entry(search_frame, textvariable=self._search_var,
+                                font=("TkDefaultFont", 10))
+        search_entry.pack(fill=tk.X, pady=(2, 0))
+        search_entry.focus()
+
+        # ── Tlačítko Vymazat filtr ───────────────────────────────────
+        clear_frame = tk.Frame(self.win, bg=bg)
+        clear_frame.pack(fill=tk.X, padx=4, pady=2)
+        tk.Button(clear_frame, text="Zrusit filtr barvy", bg="#f0f0f0", fg="#555",
+                  relief=tk.FLAT, font=("TkDefaultFont", 8), cursor="hand2",
+                  command=self._clear_filter).pack(side=tk.LEFT)
+
+        # ── Seznam barev ─────────────────────────────────────────────
+        list_frame = tk.Frame(self.win, bg=bg)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+
+        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL)
+        self._listbox = tk.Listbox(
+            list_frame,
+            font=("TkDefaultFont", 10),
+            yscrollcommand=scrollbar.set,
+            selectmode=tk.SINGLE,
+            activestyle='dotbox',
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightcolor="#2c6fad"
+        )
+        scrollbar.config(command=self._listbox.yview)
+        self._listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._listbox.bind('<Double-1>', self._on_select)
+        self._listbox.bind('<Return>', self._on_select)
+
+        self._populate(self.all_colors)
+
+    def _populate(self, colors):
+        """Naplnit listbox zadaným seznamem barev."""
+        self._listbox.delete(0, tk.END)
+        for name in colors:
+            self._listbox.insert(tk.END, name)
+
+    def _on_search(self, *args):
+        """Filtrovat seznam podle textu ve vyhledávacím poli."""
+        query = self._search_var.get().strip().lower()
+        if query:
+            filtered = [c for c in self.all_colors if query in c.lower()]
+        else:
+            filtered = self.all_colors
+        self._populate(filtered)
+
+    def _on_select(self, event=None):
+        """Uživatel klikl nebo stiskl Enter — předat vybranou barvu a zavřít."""
+        selection = self._listbox.curselection()
+        if not selection:
+            return
+        color_name = self._listbox.get(selection[0])
+        self.win.destroy()
+        self.callback(color_name)
+
+    def _clear_filter(self):
+        """Zrušit filtr barvy — předat prázdný řetězec a zavřít."""
+        self.win.destroy()
+        self.callback('')
+
 # Pokus o načtení matplotlib pro koláčový graf složení.
 # Pokud není nainstalován, záložka vyhledávání zobrazí jen textový detail.
 try:
@@ -749,12 +861,27 @@ class ColorDatabaseGUI:
                   font=self.font_ui_sm, foreground="gray").grid(
             row=5, column=1, sticky=tk.W, padx=5, pady=0)
 
-        ttk.Label(inner_filter, text="🎨 Barva (PK nebo název):", font=self.font_ui_bold).grid(
+        ttk.Label(inner_filter, text="Barva:", font=self.font_ui_bold).grid(
             row=6, column=0, sticky=tk.W, padx=5, pady=5)
-        self.adv_color = ttk.Entry(inner_filter, font=self.font_ui, width=20)
-        self.adv_color.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
 
-        ttk.Label(inner_filter, text="(Např. '14' = PK barvy, 'Blue 17' = název)",
+        # Pole barvy — Entry + tlačítko pro výběr ze seznamu
+        color_frame = tk.Frame(inner_filter)
+        color_frame.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
+
+        self.adv_color = ttk.Entry(color_frame, font=self.font_ui, width=20)
+        self.adv_color.pack(side=tk.LEFT)
+
+        self._color_pick_btn = tk.Button(
+            color_frame, text="Vybrat",
+            relief=tk.GROOVE, cursor="hand2",
+            font=("TkDefaultFont", 9),
+            bg="#e8e8e8", activebackground="#d0d0d0",
+            padx=4, pady=1,
+            command=self._open_color_picker
+        )
+        self._color_pick_btn.pack(side=tk.LEFT, padx=(2, 0))
+
+        ttk.Label(inner_filter, text="(Zadejte název nebo vyberte ze seznamu)",
                   font=self.font_ui_sm, foreground="gray").grid(
             row=7, column=1, sticky=tk.W, padx=5, pady=0)
 
@@ -1613,6 +1740,27 @@ class ColorDatabaseGUI:
     def find_basecolor(self, pk):
         """Vrátit DBBaseColor element podle PK (z lookup tabulky, O(1))."""
         return self._basecolor_by_pk.get(pk)
+
+    def _open_color_picker(self):
+        """Otevřít popup se seznamem všech barev z načtené databáze."""
+        if not self.db:
+            messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
+            return
+        # Sestavit seřazený seznam unikátních názvů barev z DBBaseColor
+        color_names = set()
+        for bc in self.db['root'].iter('DBBaseColor'):
+            name_elem = bc.find('.//Name[@CLASS="String"]')
+            if name_elem is not None:
+                name = name_elem.get('VAL', '').strip()
+                if name:
+                    color_names.add(name)
+        sorted_colors = sorted(color_names, key=lambda x: x.lower())
+        ColorPickerPopup(self._color_pick_btn, sorted_colors, self._set_color_filter)
+
+    def _set_color_filter(self, color_name):
+        """Nastavit vybranou barvu do pole filtru."""
+        self.adv_color.delete(0, tk.END)
+        self.adv_color.insert(0, color_name)
 
     def clear_advanced_filter(self):
         """Vymazat výsledky v záložce pokročilého filtrování."""
