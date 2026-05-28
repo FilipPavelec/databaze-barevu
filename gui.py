@@ -24,6 +24,7 @@ from tkinter import filedialog, messagebox, scrolledtext
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
+import json
 
 # Pokus o načtení reportlab (knihovna pro tvorbu PDF).
 # Pokud není nainstalovaná, tlačítko PDF bude v aplikaci zašedlé.
@@ -370,14 +371,14 @@ class ColorPickerPopup:
     Kliknutím na barvu se název zapíše do pole filtru a okno se zavře.
     """
 
-    def __init__(self, parent, color_names, callback):
+    def __init__(self, parent, color_entries, callback):
         """
-        parent      — widget pod kterým se popup otevře
-        color_names — seřazený seznam názvů barev (stringy)
-        callback    — funkce(název_barvy) zavolaná po výběru
+        parent        — widget pod kterým se popup otevře
+        color_entries — seznam tuplů (zobrazovaný_název, hledaný_text)
+        callback      — funkce(hledaný_text) zavolaná po výběru
         """
-        self.callback    = callback
-        self.all_colors  = color_names
+        self.callback     = callback
+        self.all_entries  = color_entries  # seznam (display, search_value)
 
         self.win = tk.Toplevel(parent)
         self.win.title("Vyberte barvu")
@@ -385,7 +386,6 @@ class ColorPickerPopup:
         self.win.grab_set()
         self.win.transient(parent)
 
-        # Umístit popup pod tlačítko
         parent.update_idletasks()
         x = parent.winfo_rootx()
         y = parent.winfo_rooty() + parent.winfo_height()
@@ -411,7 +411,7 @@ class ColorPickerPopup:
         search_entry.pack(fill=tk.X, pady=(2, 0))
         search_entry.focus()
 
-        # ── Tlačítko Vymazat filtr ───────────────────────────────────
+        # ── Tlačítko Zrušit filtr ────────────────────────────────────
         clear_frame = tk.Frame(self.win, bg=bg)
         clear_frame.pack(fill=tk.X, padx=4, pady=2)
         tk.Button(clear_frame, text="Zrusit filtr barvy", bg="#f0f0f0", fg="#555",
@@ -441,31 +441,33 @@ class ColorPickerPopup:
         self._listbox.bind('<Double-1>', self._on_select)
         self._listbox.bind('<Return>', self._on_select)
 
-        self._populate(self.all_colors)
+        self._current_entries = self.all_entries
+        self._populate(self.all_entries)
 
-    def _populate(self, colors):
-        """Naplnit listbox zadaným seznamem barev."""
+    def _populate(self, entries):
+        """Naplnit listbox zadaným seznamem (display, search_value) tuplů."""
         self._listbox.delete(0, tk.END)
-        for name in colors:
-            self._listbox.insert(tk.END, name)
+        self._current_entries = entries
+        for display, _ in entries:
+            self._listbox.insert(tk.END, display)
 
     def _on_search(self, *args):
         """Filtrovat seznam podle textu ve vyhledávacím poli."""
         query = self._search_var.get().strip().lower()
         if query:
-            filtered = [c for c in self.all_colors if query in c.lower()]
+            filtered = [(d, s) for d, s in self.all_entries if query in d.lower()]
         else:
-            filtered = self.all_colors
+            filtered = self.all_entries
         self._populate(filtered)
 
     def _on_select(self, event=None):
-        """Uživatel klikl nebo stiskl Enter — předat vybranou barvu a zavřít."""
+        """Uživatel klikl nebo stiskl Enter — předat search_value a zavřít."""
         selection = self._listbox.curselection()
         if not selection:
             return
-        color_name = self._listbox.get(selection[0])
+        _, search_value = self._current_entries[selection[0]]
         self.win.destroy()
-        self.callback(color_name)
+        self.callback(search_value)
 
     def _clear_filter(self):
         """Zrušit filtr barvy — předat prázdný řetězec a zavřít."""
@@ -510,6 +512,50 @@ class ColorDatabaseGUI:
 
         self._setup_fonts()
         self.setup_ui()
+        self._load_config()  # načíst uloženou cestu k databázi a případně ji otevřít
+
+    def _config_path(self):
+        """Vrátit cestu ke konfiguračnímu souboru (vedle EXE nebo gui.py)."""
+        base = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base, 'databaze_config.json')
+
+    def _load_config(self):
+        """
+        Načíst konfiguraci z předchozího spuštění.
+
+        Pokud byl při posledním zavření otevřen XML soubor a soubor stále existuje,
+        automaticky ho načte — uživatel nemusí vybírat soubor znovu.
+        """
+        try:
+            cfg_path = self._config_path()
+            if not os.path.exists(cfg_path):
+                return
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            last_file = cfg.get('last_xml_file', '')
+            if last_file and os.path.exists(last_file):
+                self.load_database(last_file)
+        except Exception:
+            pass  # poškozený config — tiše ignorovat, uživatel vybere soubor ručně
+
+    def _save_config(self):
+        """
+        Uložit aktuální konfiguraci před zavřením aplikace.
+
+        Ukládá cestu k naposledy otevřenému XML souboru, aby ho příští
+        spuštění mohlo automaticky načíst.
+        """
+        try:
+            cfg = {'last_xml_file': self.xml_file or ''}
+            with open(self._config_path(), 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # pokud nelze uložit (práva, disk plný...), nevadí
+
+    def _on_close(self):
+        """Zavolá se při zavření okna — uloží config a ukončí aplikaci."""
+        self._save_config()
+        self.root.destroy()
 
     def _setup_fonts(self):
         """
@@ -608,9 +654,15 @@ class ColorDatabaseGUI:
         self.file_label.pack(side=tk.LEFT, padx=5)
 
         if TTKBOOTSTRAP_AVAILABLE:
-            ttk.Button(top_frame, text="📂 Načíst soubor", command=self.browse_file, bootstyle="primary").pack(side=tk.RIGHT, padx=5)
+            ttk.Button(top_frame, text="Nacist soubor", command=self.browse_file, bootstyle="primary").pack(side=tk.RIGHT, padx=5)
+            # Přepínač světlý/tmavý režim — jen pokud je ttkbootstrap (umí měnit téma za běhu)
+            self._dark_mode = False
+            self._theme_btn = ttk.Button(top_frame, text="\u263D Tmavy",  # ☽ měsíc
+                                         width=9, command=self._toggle_theme,
+                                         bootstyle="secondary")
+            self._theme_btn.pack(side=tk.RIGHT, padx=(0, 2))
         else:
-            ttk.Button(top_frame, text="📂 Načíst soubor", command=self.browse_file).pack(side=tk.RIGHT, padx=5)
+            ttk.Button(top_frame, text="Nacist soubor", command=self.browse_file).pack(side=tk.RIGHT, padx=5)
 
         ttk.Separator(self.root, orient='horizontal').pack(fill=tk.X, padx=10, pady=5)
 
@@ -1746,21 +1798,42 @@ class ColorDatabaseGUI:
         if not self.db:
             messagebox.showwarning("Upozornění", "Nejprve načtěte XML soubor!")
             return
-        # Sestavit seřazený seznam unikátních názvů barev z DBBaseColor
-        color_names = set()
+        # Sestavit seřazený seznam názvů barev.
+        # Každá položka je (zobrazovaný_název, hledaný_text_pro_filtr).
+        # Pro barvy s názvem jsou obě hodnoty stejné.
+        # Pro barvy bez názvu se zobrazí "Ventil X" ale filtr hledá podle ventilu.
+        color_entries = []
+        seen = set()
         for bc in self.db['root'].iter('DBBaseColor'):
-            name_elem = bc.find('.//Name[@CLASS="String"]')
-            if name_elem is not None:
-                name = name_elem.get('VAL', '').strip()
-                if name:
-                    color_names.add(name)
-        sorted_colors = sorted(color_names, key=lambda x: x.lower())
-        ColorPickerPopup(self._color_pick_btn, sorted_colors, self._set_color_filter)
+            name_elem  = bc.find('.//Name[@CLASS="String"]')
+            valve_elem = bc.find('.//ValveNr[@CLASS="Integer"]')
+            name  = name_elem.get('VAL', '').strip()  if name_elem  is not None else ''
+            valve = valve_elem.get('VAL', '').strip() if valve_elem is not None else ''
+            pk    = bc.get('PK', '')
 
-    def _set_color_filter(self, color_name):
-        """Nastavit vybranou barvu do pole filtru."""
+            if name:
+                key = name
+                if key not in seen:
+                    seen.add(key)
+                    color_entries.append((name, name))  # (zobrazit, hledat)
+            elif valve and valve not in ('-1', '-', ''):
+                key = f'Ventil {valve}'
+                if key not in seen:
+                    seen.add(key)
+                    color_entries.append((key, valve))  # hledat podle čísla ventilu
+            elif pk:
+                key = f'Barva PK={pk}'
+                if key not in seen:
+                    seen.add(key)
+                    color_entries.append((key, pk))
+
+        color_entries.sort(key=lambda x: x[0].lower())
+        ColorPickerPopup(self._color_pick_btn, color_entries, self._set_color_filter)
+
+    def _set_color_filter(self, color_value):
+        """Nastavit vybranou barvu do pole filtru (color_value = hledaný text)."""
         self.adv_color.delete(0, tk.END)
-        self.adv_color.insert(0, color_name)
+        self.adv_color.insert(0, color_value)
 
     def clear_advanced_filter(self):
         """Vymazat výsledky v záložce pokročilého filtrování."""
@@ -2059,6 +2132,26 @@ class ColorDatabaseGUI:
         """Vymazat vstupní pole vyhledávání a vrátit focus."""
         self.search_entry.delete(0, tk.END)
         self.search_entry.focus()
+
+    def _toggle_theme(self):
+        """
+        Přepnout mezi světlým (cosmo) a tmavým (darkly) režimem.
+
+        ttkbootstrap umožňuje změnit téma za běhu přes root.style.theme_use().
+        Tlačítko zobrazuje co se stane po kliknutí:
+          - zobrazuje "Mesic"   → aktuálně světlé, kliknutím přepneš na tmavé
+          - zobrazuje "Slunce"  → aktuálně tmavé, kliknutím přepneš na světlé
+        """
+        if not TTKBOOTSTRAP_AVAILABLE:
+            return
+        if self._dark_mode:
+            self.root.style.theme_use('cosmo')
+            self._theme_btn.config(text="\u263D Tmavy")   # ☽ → přepnout na tmavé
+            self._dark_mode = False
+        else:
+            self.root.style.theme_use('darkly')
+            self._theme_btn.config(text="\u2600 Svetly")  # ☀ → přepnout na světlé
+            self._dark_mode = True
 
     def _show_about(self):
         """Zobrazit okno O aplikaci s brandingem Model Group."""
