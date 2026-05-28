@@ -2203,6 +2203,7 @@ def main():
         root = tk.Tk()
 
     app = ColorDatabaseGUI(root)
+    root.protocol("WM_DELETE_WINDOW", app._on_close)  # uložit config při zavření
 
     # Přidat menu lištu s brandingem
     menubar = tk.Menu(root)
