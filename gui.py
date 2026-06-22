@@ -41,10 +41,6 @@ class ColorDatabaseGUI:
         self._setup_fonts()
         self.setup_ui()
 
-        default_file = "testExport.XML"
-        if os.path.exists(default_file):
-            self.load_database(default_file)
-
     def _setup_fonts(self):
         """Nastavit fonty — jen fonty dostupné v systému."""
         import tkinter.font as tkfont

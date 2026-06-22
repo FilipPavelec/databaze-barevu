@@ -41,3 +41,5 @@ Thumbs.db
 
 # Project specific
 sample_data.xml
+*.XML
+*.xml

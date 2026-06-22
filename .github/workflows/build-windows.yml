@@ -31,7 +31,6 @@ jobs:
       run: |
         pyinstaller --onefile --windowed `
           --name="DatabazeBarevu" `
-          --add-data="testExport.XML;." `
           --hidden-import=ttkbootstrap `
           --hidden-import=matplotlib `
           --hidden-import=matplotlib.backends.backend_tkagg `
