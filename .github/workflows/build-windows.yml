@@ -3,6 +3,8 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 env:
@@ -11,26 +13,52 @@ env:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller ttkbootstrap matplotlib
-    
+        pip install pyinstaller==6.11.1 ttkbootstrap==1.10.3 matplotlib==3.9.4
+
     - name: Build EXE
       run: |
-        pyinstaller --onefile --windowed --name="DatabazeBarevu" --add-data="testExport.XML;." --icon=NONE --clean gui.py
-    
+        pyinstaller --onefile --windowed `
+          --name="DatabazeBarevu" `
+          --add-data="testExport.XML;." `
+          --hidden-import=ttkbootstrap `
+          --hidden-import=matplotlib `
+          --hidden-import=matplotlib.backends.backend_tkagg `
+          --clean `
+          gui.py
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: DatabazeBarevu-Windows
         path: dist/DatabazeBarevu.exe
+        retention-days: 30
+
+    # Automatický release při pushnutí tagu (např. v1.0.0)
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/DatabazeBarevu.exe
+        name: "Databáze barev ${{ github.ref_name }}"
+        body: |
+          ## Databáze barev ${{ github.ref_name }}
+
+          ### Stažení
+          Stáhněte `DatabazeBarevu.exe` níže — nevyžaduje instalaci Pythonu.
+
+          ### Použití
+          1. Stáhněte `DatabazeBarevu.exe`
+          2. Spusťte — Windows může zobrazit varování SmartScreen, klikněte "Další informace" → "Přesto spustit"
+          3. Načtěte XML soubor s databází barev
